@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { chatService, ConversationSummary, MessageDto } from "@/services/chatService";
+import { chatService, ConversationSummary, MessageDto, ParticipantInfo } from "@/services/chatService";
 import { wsService } from "@/services/wsService";
 import { useAuthStore } from "@/store/authStore";
 import { useNotificationStore } from "@/store/notificationStore";
@@ -85,6 +85,10 @@ interface ChatState {
   connectWs: () => void;
   disconnectWs: () => void;
   handleWsEvent: (event: import("@/services/wsService").WsEvent) => void;
+  // Group member management
+  addGroupMember: (conversationId: number, userId: number) => Promise<void>;
+  removeGroupMember: (conversationId: number, userId: number) => Promise<void>;
+  updateGroupMemberRole: (conversationId: number, userId: number, role: "admin" | "member") => Promise<void>;
 }
 
 let wsUnsubscribe: (() => void) | null = null;
@@ -223,7 +227,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         const replyContent = replies[Math.floor(Math.random() * replies.length)];
         const delay = 2000 + Math.random() * 3000;
 
-        // First show typing indicator
         setTimeout(() => {
           wsService.simulateTyping(conversationId, autoReply.userId, autoReply.name, delay - 500);
         }, 500);
@@ -252,7 +255,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   // ── Mark as read ──────────────────────────────────────────────────────────
   markAsRead: async (conversationId) => {
     const currentUserId = useAuthStore.getState().user?.id ?? 1;
-    // Update unread count in sidebar
     set((s) => ({
       conversations: s.conversations.map((c) =>
         c.id === conversationId ? { ...c, unreadCount: 0 } : c
@@ -260,7 +262,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     }));
     await chatService.markAsRead(conversationId);
 
-    // In mock: mark incoming messages as read
     set((s) => {
       const msgs = s.messagesMap[conversationId] ?? [];
       return {
@@ -272,6 +273,36 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         },
       };
     });
+  },
+
+  // ── Group member management ───────────────────────────────────────────────
+  addGroupMember: async (conversationId, userId) => {
+    await chatService.addGroupMember(conversationId, userId);
+    // Reload the updated conversation from the service
+    const updatedConvs = await chatService.getConversations();
+    set({ conversations: updatedConvs });
+  },
+
+  removeGroupMember: async (conversationId, userId) => {
+    await chatService.removeGroupMember(conversationId, userId);
+    const updatedConvs = await chatService.getConversations();
+    set({ conversations: updatedConvs });
+  },
+
+  updateGroupMemberRole: async (conversationId, userId, role) => {
+    await chatService.updateGroupMemberRole(conversationId, userId, role);
+    // Update locally in store as well
+    set((s) => ({
+      conversations: s.conversations.map((conv) => {
+        if (conv.id !== conversationId) return conv;
+        return {
+          ...conv,
+          participants: conv.participants.map((p) =>
+            p.userId === userId ? { ...p, role } : p
+          ),
+        };
+      }),
+    }));
   },
 
   // ── Navigation ────────────────────────────────────────────────────────────
@@ -319,18 +350,17 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           attachments: raw.attachments ?? [],
         };
 
+        // Persist incoming message to the mock DB
+        chatService.mockAppendMessage(msg);
+
         const currentUserId = useAuthStore.getState().user?.id ?? 1;
         const isOwn = msg.senderId === currentUserId;
 
         set((s) => {
           const existing = s.messagesMap[convId] ?? [];
-          // Avoid duplicates (message already in optimistic update)
           if (existing.some((m) => m.id === msg.id)) return s;
 
-          // If current user is viewing this conversation, mark as read
           const isActive = s.currentConversationId === convId;
-
-          // Update unread count
           const conversations = s.conversations.map((c) => {
             if (c.id !== convId) return c;
             return {
@@ -347,13 +377,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           };
         });
 
-        // Auto mark-as-read if this conversation is active
         const s = get();
         if (s.currentConversationId === convId && !isOwn) {
           chatService.markAsRead(convId).catch(() => {});
         }
 
-        // Trigger notification for incoming messages from other users
         if (!isOwn && s.currentConversationId !== convId) {
           const conv = s.conversations.find((c) => c.id === convId);
           if (conv) {
@@ -372,11 +400,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
       case "message_status": {
         const { conversation_id, message_id, status } = event;
+        // Persist status change to mock DB
+        chatService.mockUpdateMessageStatus(conversation_id, message_id, status as MessageDto["status"]);
         set((s) => {
           const msgs = s.messagesMap[conversation_id];
           if (!msgs) return s;
           const updated = msgs.map((m) => {
-            // message_id = 0 means "all messages in this conversation"
             if (message_id === 0 || m.id === message_id) {
               const currentUserId = useAuthStore.getState().user?.id ?? 1;
               if (m.senderId === currentUserId) {
@@ -395,7 +424,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         const key = `${conversation_id}-${user_id}`;
 
         if (is_typing) {
-          // Add to typing map
           set((s) => {
             const current = s.typingMap[conversation_id] ?? [];
             const exists = current.some((u) => u.userId === user_id);
@@ -408,7 +436,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             };
           });
 
-          // Auto-remove after 5 seconds (safety net)
           if (typingTimers[key]) clearTimeout(typingTimers[key]);
           typingTimers[key] = setTimeout(() => {
             set((s) => ({

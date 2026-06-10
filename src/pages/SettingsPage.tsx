@@ -1,6 +1,7 @@
 import { useThemeStore, AccentColor, FontSize, ChatBackground } from "@/store/themeStore";
 import { useAuthStore } from "@/store/authStore";
 import { authService } from "@/services/authService";
+import { useNavigate } from "react-router-dom";
 
 const accentColors: { id: AccentColor; label: string; hex: string }[] = [
   { id: "green",  label: "WhatsApp",  hex: "#00a884" },
@@ -139,6 +140,7 @@ export function SettingsPage() {
     setTheme, setAccentColor, setFontSize, setChatBackground,
   } = useThemeStore();
   const { user, token, clearAuth } = useAuthStore();
+  const navigate = useNavigate();
 
   const isDark = document.documentElement.classList.contains("dark");
 
@@ -156,7 +158,18 @@ export function SettingsPage() {
       style={{ backgroundColor: "var(--color-surface)" }}
     >
       {/* Header */}
-      <div className="px-6 py-5 border-b shrink-0" style={{ borderColor: "var(--color-border)" }}>
+      <div className="flex items-center gap-3 px-4 py-4 border-b shrink-0" style={{ borderColor: "var(--color-border)" }}>
+        <button
+          onClick={() => navigate(-1)}
+          className="w-9 h-9 flex items-center justify-center rounded-full shrink-0 transition-colors"
+          style={{ color: "var(--color-text-muted)" }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = "var(--color-hover)"; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = "transparent"; }}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
         <h1 className="text-lg font-semibold" style={{ color: "var(--color-text-primary)" }}>
           Paramètres
         </h1>

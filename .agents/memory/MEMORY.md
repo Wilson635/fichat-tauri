@@ -1,0 +1,3 @@
+- [Mock DB architecture](mock-db.md) — all in-browser data goes through `src/services/mockDb.ts` (localStorage-backed); never use inline static arrays for mock data
+- [Group member roles](group-roles.md) — `ParticipantInfo` carries `role?: "admin" | "member"`; chatStore actions reload conversations from service after any member change
+- [Sidebar active state](sidebar-active.md) — use `useLocation().pathname` + regex to determine active conv; `useParams` misses nested `:id` in parent route context

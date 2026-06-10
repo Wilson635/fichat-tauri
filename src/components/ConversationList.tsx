@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useChatStore } from "@/store/chatStore";
 import { useAuthStore } from "@/store/authStore";
 import { isToday, isYesterday, format } from "date-fns";
@@ -140,8 +140,9 @@ interface Props {
 
 export function ConversationList({ searchQuery, onNewGroup }: Props) {
   const navigate = useNavigate();
-  const params = useParams<{ id: string }>();
-  const activeId = params.id ? Number(params.id) : null;
+  const { pathname } = useLocation();
+  const match = pathname.match(/\/conversations\/(\d+)/);
+  const activeId = match ? Number(match[1]) : null;
 
   const { conversations, isLoadingConversations, loadConversations, connectWs } = useChatStore();
   const { user } = useAuthStore();

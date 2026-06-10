@@ -1,33 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuthStore } from "@/store/authStore";
-import type { ConversationSummary } from "@/services/chatService";
-
-const MOCK_USERS_BY_ID: Record<number, { department: string }> = {
-  1: { department: "IT" },
-  2: { department: "Développement" },
-  3: { department: "Commercial" },
-  4: { department: "Finance" },
-  5: { department: "Développement" },
-  6: { department: "RH" },
-  7: { department: "Marketing" },
-  8: { department: "Direction" },
-};
-
-const ALL_USERS = [
-  { id: 6, displayName: "Emma Rousseau", department: "RH", presenceStatus: "offline" },
-  { id: 7, displayName: "François Lambert", department: "Marketing", presenceStatus: "online" },
-  { id: 8, displayName: "Gabrielle Simon", department: "Direction", presenceStatus: "away" },
-];
+import { useChatStore } from "@/store/chatStore";
+import { chatService } from "@/services/chatService";
+import { SYSTEM_USERS } from "@/services/mockDb";
+import type { ConversationSummary, UserForChat } from "@/services/chatService";
 
 const presenceColors: Record<string, string> = {
   online: "#22c55e", away: "#f59e0b", busy: "#ef4444", offline: "var(--color-border)",
 };
-
-interface GroupEvent {
-  id: number;
-  text: string;
-  time: string;
-}
 
 interface Props {
   conversation: ConversationSummary;
@@ -36,40 +16,65 @@ interface Props {
 
 export function GroupDetailsPanel({ conversation, onClose }: Props) {
   const { user } = useAuthStore();
+  const { addGroupMember, removeGroupMember, updateGroupMemberRole } = useChatStore();
   const [tab, setTab] = useState<"members" | "media" | "events">("members");
-  const [members, setMembers] = useState(() =>
-    conversation.participants.map((p) => ({
-      ...p,
-      role: p.userId === user?.id || p.userId === 4 ? "admin" : "member",
-      department: MOCK_USERS_BY_ID[p.userId]?.department ?? "—",
-    }))
-  );
   const [showAddMember, setShowAddMember] = useState(false);
   const [searchAdd, setSearchAdd] = useState("");
-  const [events] = useState<GroupEvent[]>([
-    { id: 1, text: `${user?.displayName ?? "Vous"} a créé le groupe`, time: "Il y a 5 jours" },
-    { id: 2, text: "Alice Martin a été ajoutée par Admin", time: "Il y a 5 jours" },
-    { id: 3, text: "David Moreau a été ajouté par Admin", time: "Il y a 4 jours" },
-    { id: 4, text: "Claire Bernard a été promue administratrice", time: "Il y a 2 jours" },
-  ]);
+  const [allUsers, setAllUsers] = useState<UserForChat[]>([]);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  const [loadingMember, setLoadingMember] = useState<number | null>(null);
 
+  useEffect(() => {
+    chatService.listUsers().then(setAllUsers).catch(() => {});
+  }, []);
+
+  const members = conversation.participants;
   const currentMember = members.find((m) => m.userId === user?.id);
   const isAdmin = currentMember?.role === "admin";
   const memberIds = new Set(members.map((m) => m.userId));
-  const addableUsers = ALL_USERS.filter(
-    (u) => !memberIds.has(u.id) && u.displayName.toLowerCase().includes(searchAdd.toLowerCase())
+
+  const addableUsers = allUsers.filter(
+    (u) =>
+      !memberIds.has(u.id) &&
+      u.displayName.toLowerCase().includes(searchAdd.toLowerCase()),
   );
 
-  const promote = (userId: number) =>
-    setMembers((prev) => prev.map((m) => m.userId === userId ? { ...m, role: "admin" } : m));
-  const demote = (userId: number) =>
-    setMembers((prev) => prev.map((m) => m.userId === userId ? { ...m, role: "member" } : m));
-  const remove = (userId: number) =>
-    setMembers((prev) => prev.filter((m) => m.userId !== userId));
-  const addMember = (u: typeof ALL_USERS[0]) => {
-    setMembers((prev) => [...prev, { userId: u.id, displayName: u.displayName, avatarPath: null, presenceStatus: u.presenceStatus as any, role: "member", department: u.department }]);
-    setSearchAdd("");
+  const handleAddMember = async (u: UserForChat) => {
+    setLoadingMember(u.id);
+    try {
+      await addGroupMember(conversation.id, u.id);
+      setSearchAdd("");
+      setShowAddMember(false);
+    } finally {
+      setLoadingMember(null);
+    }
+  };
+
+  const handleRemove = async (userId: number) => {
+    setLoadingMember(userId);
+    try {
+      await removeGroupMember(conversation.id, userId);
+    } finally {
+      setLoadingMember(null);
+    }
+  };
+
+  const handlePromote = async (userId: number) => {
+    setLoadingMember(userId);
+    try {
+      await updateGroupMemberRole(conversation.id, userId, "admin");
+    } finally {
+      setLoadingMember(null);
+    }
+  };
+
+  const handleDemote = async (userId: number) => {
+    setLoadingMember(userId);
+    try {
+      await updateGroupMemberRole(conversation.id, userId, "member");
+    } finally {
+      setLoadingMember(null);
+    }
   };
 
   const hue = (s: string) => s.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
@@ -77,7 +82,6 @@ export function GroupDetailsPanel({ conversation, onClose }: Props) {
   const mockMedia = Array.from({ length: 9 }, (_, i) => ({
     id: i,
     color: `hsl(${(i * 40 + 180) % 360}, 50%, 60%)`,
-    label: `Photo ${i + 1}`,
   }));
 
   const mockDocs = [
@@ -85,6 +89,11 @@ export function GroupDetailsPanel({ conversation, onClose }: Props) {
     { name: "Budget_previsionnel.xlsx", size: "890 Ko", type: "xlsx", sender: "Claire Bernard" },
     { name: "Compte_rendu_reunion.docx", size: "145 Ko", type: "docx", sender: "David Moreau" },
   ];
+
+  const userDept = (userId: number) => {
+    const u = SYSTEM_USERS.find((u) => u.id === userId);
+    return u?.department ?? "—";
+  };
 
   return (
     <div
@@ -118,9 +127,6 @@ export function GroupDetailsPanel({ conversation, onClose }: Props) {
           </h2>
           <p className="text-sm mt-1" style={{ color: "var(--color-text-muted)" }}>
             Groupe · {members.length} participant{members.length > 1 ? "s" : ""}
-          </p>
-          <p className="text-xs mt-2 text-center" style={{ color: "var(--color-text-muted)" }}>
-            Groupe créé il y a 5 jours
           </p>
         </div>
 
@@ -172,17 +178,24 @@ export function GroupDetailsPanel({ conversation, onClose }: Props) {
                   className="w-full bg-transparent text-sm outline-none px-3 py-2 rounded-lg border"
                   style={{ backgroundColor: "var(--color-surface)", borderColor: "var(--color-border)", color: "var(--color-text-primary)" }}
                 />
-                {addableUsers.length > 0 ? addableUsers.map((u) => (
-                  <button key={u.id} onClick={() => addMember(u)} className="w-full flex items-center gap-2 px-2 py-2 rounded-lg mt-1 hover:bg-black/5 dark:hover:bg-white/5 text-left">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: `hsl(${hue(u.displayName)}, 55%, 45%)` }}>
-                      {u.displayName.split(" ").map((n) => n[0]).join("").slice(0, 2)}
-                    </div>
-                    <div>
-                      <div className="text-sm font-medium" style={{ color: "var(--color-text-primary)" }}>{u.displayName}</div>
-                      <div className="text-xs" style={{ color: "var(--color-text-muted)" }}>{u.department}</div>
-                    </div>
-                  </button>
-                )) : (
+                {addableUsers.length > 0 ? (
+                  addableUsers.map((u) => (
+                    <button
+                      key={u.id}
+                      onClick={() => handleAddMember(u)}
+                      disabled={loadingMember === u.id}
+                      className="w-full flex items-center gap-2 px-2 py-2 rounded-lg mt-1 hover:bg-black/5 dark:hover:bg-white/5 text-left disabled:opacity-50"
+                    >
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: `hsl(${hue(u.displayName)}, 55%, 45%)` }}>
+                        {u.displayName.split(" ").map((n) => n[0]).join("").slice(0, 2)}
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium" style={{ color: "var(--color-text-primary)" }}>{u.displayName}</div>
+                        <div className="text-xs" style={{ color: "var(--color-text-muted)" }}>{u.department}</div>
+                      </div>
+                    </button>
+                  ))
+                ) : (
                   <p className="text-xs py-2 text-center" style={{ color: "var(--color-text-muted)" }}>
                     {searchAdd ? "Aucun résultat" : "Tous les utilisateurs sont membres"}
                   </p>
@@ -216,30 +229,33 @@ export function GroupDetailsPanel({ conversation, onClose }: Props) {
                         </span>
                       )}
                     </div>
-                    <div className="text-xs" style={{ color: "var(--color-text-muted)" }}>{m.department}</div>
+                    <div className="text-xs" style={{ color: "var(--color-text-muted)" }}>{userDept(m.userId)}</div>
                   </div>
 
-                  {isAdmin && !isMe && (
+                  {isAdmin && !isMe && loadingMember !== m.userId && (
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {m.role === "member" ? (
-                        <button onClick={() => promote(m.userId)} title="Promouvoir admin" className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors">
+                      {m.role !== "admin" ? (
+                        <button onClick={() => handlePromote(m.userId)} title="Promouvoir admin" className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors">
                           <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "#7c3aed" }}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M9 11l3-3m0 0l3 3m-3-3v8m0-13a9 9 0 110 18 9 9 0 010-18z" />
                           </svg>
                         </button>
                       ) : (
-                        <button onClick={() => demote(m.userId)} title="Retirer admin" className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-colors">
+                        <button onClick={() => handleDemote(m.userId)} title="Retirer admin" className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-colors">
                           <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "#ea580c" }}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M15 13l-3 3m0 0l-3-3m3 3V8m0 13a9 9 0 110-18 9 9 0 010 18z" />
                           </svg>
                         </button>
                       )}
-                      <button onClick={() => remove(m.userId)} title="Retirer du groupe" className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors">
+                      <button onClick={() => handleRemove(m.userId)} title="Retirer du groupe" className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       </button>
                     </div>
+                  )}
+                  {loadingMember === m.userId && (
+                    <div className="w-5 h-5 shrink-0 border-2 rounded-full animate-spin" style={{ borderColor: "var(--color-primary-500)", borderTopColor: "transparent" }} />
                   )}
                 </div>
               );
@@ -290,7 +306,12 @@ export function GroupDetailsPanel({ conversation, onClose }: Props) {
         {/* Events tab */}
         {tab === "events" && (
           <div className="py-4">
-            {events.map((e) => (
+            {[
+              { id: 1, text: `${user?.displayName ?? "Vous"} a créé le groupe`, time: "Lors de la création" },
+              ...members
+                .filter((m) => m.userId !== user?.id)
+                .map((m, i) => ({ id: i + 2, text: `${m.displayName} a rejoint le groupe`, time: "Lors de la création" })),
+            ].map((e) => (
               <div key={e.id} className="flex items-start gap-3 px-4 py-2.5">
                 <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: "var(--color-primary-500)" }} />
                 <div className="flex-1">
