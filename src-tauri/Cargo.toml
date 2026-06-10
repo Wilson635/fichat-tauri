@@ -1,0 +1,50 @@
+[package]
+name = "enterprise-chat"
+version = "0.1.0"
+description = "Enterprise Chat - Application de messagerie interne avec Active Directory"
+authors = []
+edition = "2021"
+
+[lib]
+name = "enterprise_chat_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "enterprise-chat"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-notification = "2"
+tauri-plugin-store = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-shell = "2"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-native-tls", "postgres", "chrono", "uuid"] }
+ldap3 = { version = "0.11", default-features = false, features = ["tls-rustls"] }
+jsonwebtoken = "9"
+bcrypt = "0.15"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+toml = "0.8"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures-util = "0.3"
+base64 = "0.22"
+once_cell = "1"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

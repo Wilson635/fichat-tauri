@@ -1,0 +1,77 @@
+4.Gestion des Groupes et Membres
+	What & Why
+	Permettre la création de groupes de discussion, l'ajout/retrait de membres et la gestion des rôles (admin/membre). Interface style WhatsApp pour la gestion des groupes.
+
+	Done looks like
+	Création d'un groupe avec nom, description, photo de groupe
+	Ajout de membres depuis la liste des utilisateurs de l'entreprise
+	Promotion/rétrogradation d'un membre au rôle admin
+	Retrait d'un membre par un admin
+	Quitter un groupe
+	Affichage de la liste des membres avec leurs rôles
+	Page de détails du groupe (info, membres, médias partagés) style WhatsApp
+	Historique des actions sur le groupe (qui a ajouté qui, qui a promu qui)
+
+	Out of scope
+	Groupes publics / channels broadcast
+	Permissions granulaires au-delà de admin/membre
+
+	Steps
+	Schéma DB groupes — Tables groups (id, name, description, avatar_path, created_by, created_at), group_members (group_id, user_id, role: admin/member, joined_at, added_by), group_events (id, group_id, actor_id, event_type, target_id, created_at)
+	Commandes Tauri groupes — cmd_create_group, cmd_update_group, cmd_add_member, cmd_remove_member, cmd_promote_member, cmd_demote_member, cmd_leave_group, cmd_get_group_details, cmd_get_group_members
+	Création de groupe — Modal/page de création avec champ nom, description, sélecteur de membres avec recherche, upload photo de groupe
+	Page détails groupe — Style WhatsApp : header avec photo/nom, section membres (liste scrollable avec rôles, actions contextuelles admin), section médias partagés, actions dangereuses (quitter, dissoudre si admin)
+	Gestion des membres — Interface pour rechercher et ajouter des utilisateurs, actions admin (promouvoir, retirer), indicateurs visuels des rôles (badge admin)
+	Messages système — Affichage dans le chat des événements du groupe (ex: "Alice a ajouté Bob", "Charlie est maintenant admin")
+	
+
+5.Notifications Windows Prioritaires
+	What & Why
+	Système de notifications natives Windows : toast notifications pour les messages courants, et notifications prioritaires (style boîte de dialogue UAC) pour les messages urgents marqués comme tels par un admin.
+
+	Done looks like
+	Toast notifications Windows pour chaque nouveau message reçu quand l'app est en arrière-plan
+	Clic sur la notification ouvre l'app et navigue vers la conversation concernée
+	Notifications prioritaires : boîte de dialogue modale native Windows (style "Exécuter en tant qu'administrateur") qui s'affiche au premier plan, bloquant l'interaction jusqu'à confirmation
+	Son de notification configurable
+	Paramètres de notification par conversation (activer/désactiver, son, priorité)
+	Badge sur l'icône dans la barre des tâches (nombre de messages non lus)
+	Ne pas déranger (mode silencieux) configurable avec plages horaires
+
+	Out of scope
+	Notifications push via serveur externe
+	Notifications sur macOS/Linux (Windows uniquement pour la prioritaire)
+
+	Steps
+	Plugin Tauri notification — Configurer tauri-plugin-notification pour les toast Windows, permissions dans tauri.conf.json, intégration avec le store Zustand des préférences
+	Notifications prioritaires — Utiliser tauri-plugin-dialog pour créer des boîtes de dialogue modales natives bloquantes, déclenchées depuis Rust quand un message est marqué "prioritaire" par un admin
+	Badge barre des tâches — Implémenter le badge de comptage via l'API Windows (SetOverlayIcon) depuis Rust avec windows-rs ou l'API Tauri appropriée
+	Commandes Tauri notifications — cmd_send_priority_notification(message, conversation_id), cmd_update_notification_prefs(prefs), cmd_set_dnd_mode(enabled, start_hour, end_hour)
+	Paramètres notifications React — Page de préférences de notification : toggle par conversation, sélection son, plage horaire silencieuse, interrupteur mode prioritaire (admin seulement)
+	Gestion focus app — Quand l'app est minimisée/en background et qu'une notification est cliquée, la ramener au premier plan et naviguer vers la bonne conversation
+	
+7.Profil Utilisateur et Galerie Médias
+	What & Why
+	Page de profil détaillé de chaque utilisateur (style WhatsApp) avec infos AD, et galerie de tous les médias partagés dans les conversations et groupes.
+
+	Done looks like
+	Page de profil avec photo, nom complet, titre/poste (depuis AD), département, email, téléphone
+	Statut de présence (en ligne, absent, occupé, hors ligne) avec heure de dernière connexion
+	Message de statut personnalisable par l'utilisateur
+	Photo de profil modifiable (depuis l'AD ou upload manuel)
+	Galerie de médias partagés dans la conversation avec cet utilisateur : photos, vidéos, documents organisés en onglets
+	Liens et documents partagés listés proprement
+	Profil propre de l'utilisateur courant avec édition des infos modifiables
+
+	Out of scope
+	Stories / statuts éphémères style WhatsApp
+	Localisation GPS / partage de position
+
+	Steps
+	Schéma DB profils — Colonnes supplémentaires dans users : status_message, presence_status, last_seen, avatar_path, custom fields. Table user_presence pour le tracking temps réel de la présence
+	Commandes Tauri profil — cmd_get_user_profile(user_id), cmd_update_profile(fields), cmd_update_avatar(image_data), cmd_set_presence(status), cmd_get_shared_media(conversation_id, type, page)
+	Présence temps réel — Mise à jour de la présence via WebSocket (ping périodique), broadcast aux contacts quand le statut change, gestion du "hors ligne" après timeout d'inactivité
+	Page profil — Layout style WhatsApp : photo grande en haut, infos structurées, section médias partagés avec grille miniatures, onglets (Photos, Docs, Liens), action "Envoyer un message" depuis le profil
+	Galerie médias — Grid de miniatures cliquables pour les images, liste pour les documents avec icône de type, section liens avec prévisualisation URL, pagination, téléchargement
+	Mon profil — Page de mon propre profil avec édition : changer photo (crop intégré), modifier statut, message de statut, voir ses propres statistiques
+	

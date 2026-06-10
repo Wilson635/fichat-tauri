@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Enterprise Chat",
+  "version": "0.1.0",
+  "identifier": "com.enterprise.chat",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5080",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Enterprise Chat",
+        "width": 1200,
+        "height": 750,
+        "minWidth": 800,
+        "minHeight": 550,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "decorations": true,
+        "transparent": false
+      }
+    ],
+    "security": {
+      "csp": null
+    },
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "title": "Enterprise Chat",
+      "tooltip": "Enterprise Chat"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+  }
+}

@@ -1,0 +1,26 @@
+# Node
+node_modules/
+dist/
+.env
+.env.local
+
+# Rust / Cargo
+target/
+src-tauri/target/
+Cargo.lock
+
+# Tauri
+src-tauri/gen/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+.idea/
+
+# Replit
+.local/
+.replit
+replit.nix

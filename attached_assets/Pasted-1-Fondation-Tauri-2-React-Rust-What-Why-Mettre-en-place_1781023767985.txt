@@ -1,0 +1,215 @@
+1.Fondation Tauri 2 + React + Rust
+	What & Why
+	Mettre en place la structure de base du projet desktop : Tauri 2 comme shell natif, React + Vite pour le frontend, Rust pour le backend natif. Cette fondation est indispensable à toutes les autres tâches.
+
+	Done looks like
+	L'application se lance en tant qu'app desktop native (fenêtre Tauri)
+	Le frontend React s'affiche correctement dans la fenêtre
+	Le routing React (react-router-dom) fonctionne
+	Tailwind CSS est configuré avec le système de thème (dark/light mode + palette inspirée WhatsApp)
+	Les variables CSS pour la palette de couleurs personnalisable sont en place
+	La structure de dossiers src-tauri (Rust) et src (React) est propre
+	Zustand est configuré pour la gestion de l'état global (thème, user session)
+	PostgreSQL est connecté depuis Rust via sqlx avec pool de connexions
+	Les migrations de base de données initiales tournent au démarrage
+
+	Out of scope
+	Toute logique métier (auth, chat, groupes, notifications)
+	Interface utilisateur finale
+
+	Steps
+	Init Tauri 2 + React + Vite — Scaffolder le projet avec create-tauri-app, configurer TypeScript, Vite, et les permissions Tauri nécessaires (filesystem, notification, shell)
+	Tailwind + système de thème — Installer Tailwind CSS, définir la palette de couleurs inspirée WhatsApp (vert #00a884, gris foncé, blanc cassé), variables CSS pour personnalisation, toggle dark/light mode persisté dans les préférences locales
+	Structure React — Mettre en place react-router-dom v6, Zustand pour le store global, layout principal avec sidebar et zone de contenu
+	Backend Rust + PostgreSQL — Ajouter sqlx + tokio dans Cargo.toml, configurer le pool de connexions PostgreSQL, créer le module de migrations, définir les tables initiales (users, groups, messages, group_members)
+	Commandes Tauri — Exposer les commandes Tauri de base : vérification de la connexion DB, récupération de la config applicative
+	Configuration — Système de configuration (URL PostgreSQL, domaine LDAP) stocké dans un fichier de config local (TOML) lu au démarrage par Rust
+
+
+2.Authentification LDAP Active Directory
+	What & Why
+	Permettre aux employés de se connecter avec leurs identifiants Active Directory de l'entreprise via LDAP. Toute la logique d'authentification tourne côté Rust pour la sécurité.
+
+	Done looks like
+	Page de login avec champ utilisateur + mot de passe
+	Rust se connecte au serveur LDAP/AD de l'entreprise et valide les credentials
+	En cas de succès, un token de session JWT est généré et stocké localement
+	Les informations du profil AD (nom, prénom, email, département, photo si disponible) sont récupérées
+	La session persiste entre les redémarrages de l'app (stockage sécurisé Tauri)
+	Déconnexion propre avec invalidation de session
+	Gestion des erreurs (mauvais mot de passe, serveur LDAP injoignable, compte désactivé)
+	Page de configuration LDAP (URL du serveur, base DN, attributs) accessible en premier lancement
+
+	Out of scope
+	SSO / OAuth
+	Double authentification (2FA)
+
+	Steps
+	Dépendance Rust LDAP — Ajouter ldap3 dans Cargo.toml, créer le module ldap avec la logique de connexion, bind, et recherche d'attributs utilisateur dans l'AD
+	Commandes Tauri auth — Exposer cmd_ldap_login(username, password) → retourne profil utilisateur ou erreur, cmd_logout(), cmd_get_session() pour vérifier la session active
+	JWT + stockage sécurisé — Générer un JWT signé côté Rust après authentification réussie, le stocker via tauri-plugin-store (stockage chiffré natif)
+	Page de login React — Interface de connexion avec palette WhatsApp, champs username/password, feedback d'erreur clair, indicateur de chargement
+	Page config LDAP — Formulaire de configuration (host, port, base_dn, attribut username, TLS/STARTTLS), sauvegardé dans le fichier TOML de config, affiché au premier lancement si non configuré
+	Guard de route — HOC/hook React vérifiant la session avant chaque route protégée, redirection vers login si non authentifié
+
+
+
+3.Système de Chat et Messagerie
+	What & Why
+	Le cœur de l'application : messagerie temps réel entre utilisateurs (1-to-1 et groupes), avec affichage des médias, statuts de lecture, et historique persisté en PostgreSQL.
+
+	Done looks like
+	Liste des conversations (directes + groupes) dans la sidebar style WhatsApp
+	Messages en temps réel via WebSocket (serveur intégré dans le backend Rust Tauri)
+	Affichage des messages avec bulles de style WhatsApp (expéditeur à droite, autres à gauche)
+	Indicateurs de statut (envoyé, reçu, lu) avec icônes doubles coches
+	Envoi de texte, emojis, fichiers (images, PDF, documents)
+	Prévisualisation des images dans la conversation
+	Barre de recherche dans les messages
+	Pagination / scroll infini pour l'historique
+	Horodatage des messages et séparateurs de date
+	Indicateur "en train d'écrire..."
+
+	Out of scope
+	Appels audio/vidéo
+	Messages éphémères / disappearing messages
+
+	Steps
+	Schéma DB messages — Tables messages (id, conversation_id, sender_id, content, type, created_at, edited_at), message_status (message_id, user_id, status: sent/delivered/read, timestamp), attachments (id, message_id, file_path, file_type, size)
+	WebSocket serveur Rust — Implémenter un serveur WebSocket avec tokio-tungstenite intégré dans le processus Tauri, gérer les connexions multiples, broadcast des messages aux membres de la conversation
+	Commandes Tauri messagerie — cmd_send_message, cmd_get_messages (paginé), cmd_mark_as_read, cmd_upload_attachment, cmd_get_conversations
+	Sidebar conversations — Liste des conversations avec avatar, nom, dernier message, heure, badge de messages non lus, style identique à WhatsApp
+	Zone de chat principale — Header de conversation (nom, membres en ligne), zone de messages scrollable, bulles de messages avec statuts, séparateurs de dates
+	Saisie de message — Barre de saisie avec sélecteur d'emojis (emoji-mart), bouton pièce jointe, prévisualisation avant envoi, raccourcis clavier (Entrée pour envoyer)
+	Gestion des médias — Affichage inline des images, viewer plein écran, download des fichiers, stockage des fichiers joints dans le système de fichiers local via Tauri FS API
+	
+	
+4.Gestion des Groupes et Membres
+	What & Why
+	Permettre la création de groupes de discussion, l'ajout/retrait de membres et la gestion des rôles (admin/membre). Interface style WhatsApp pour la gestion des groupes.
+
+	Done looks like
+	Création d'un groupe avec nom, description, photo de groupe
+	Ajout de membres depuis la liste des utilisateurs de l'entreprise
+	Promotion/rétrogradation d'un membre au rôle admin
+	Retrait d'un membre par un admin
+	Quitter un groupe
+	Affichage de la liste des membres avec leurs rôles
+	Page de détails du groupe (info, membres, médias partagés) style WhatsApp
+	Historique des actions sur le groupe (qui a ajouté qui, qui a promu qui)
+
+	Out of scope
+	Groupes publics / channels broadcast
+	Permissions granulaires au-delà de admin/membre
+
+	Steps
+	Schéma DB groupes — Tables groups (id, name, description, avatar_path, created_by, created_at), group_members (group_id, user_id, role: admin/member, joined_at, added_by), group_events (id, group_id, actor_id, event_type, target_id, created_at)
+	Commandes Tauri groupes — cmd_create_group, cmd_update_group, cmd_add_member, cmd_remove_member, cmd_promote_member, cmd_demote_member, cmd_leave_group, cmd_get_group_details, cmd_get_group_members
+	Création de groupe — Modal/page de création avec champ nom, description, sélecteur de membres avec recherche, upload photo de groupe
+	Page détails groupe — Style WhatsApp : header avec photo/nom, section membres (liste scrollable avec rôles, actions contextuelles admin), section médias partagés, actions dangereuses (quitter, dissoudre si admin)
+	Gestion des membres — Interface pour rechercher et ajouter des utilisateurs, actions admin (promouvoir, retirer), indicateurs visuels des rôles (badge admin)
+	Messages système — Affichage dans le chat des événements du groupe (ex: "Alice a ajouté Bob", "Charlie est maintenant admin")
+	
+
+5.Notifications Windows Prioritaires
+	What & Why
+	Système de notifications natives Windows : toast notifications pour les messages courants, et notifications prioritaires (style boîte de dialogue UAC) pour les messages urgents marqués comme tels par un admin.
+
+	Done looks like
+	Toast notifications Windows pour chaque nouveau message reçu quand l'app est en arrière-plan
+	Clic sur la notification ouvre l'app et navigue vers la conversation concernée
+	Notifications prioritaires : boîte de dialogue modale native Windows (style "Exécuter en tant qu'administrateur") qui s'affiche au premier plan, bloquant l'interaction jusqu'à confirmation
+	Son de notification configurable
+	Paramètres de notification par conversation (activer/désactiver, son, priorité)
+	Badge sur l'icône dans la barre des tâches (nombre de messages non lus)
+	Ne pas déranger (mode silencieux) configurable avec plages horaires
+
+	Out of scope
+	Notifications push via serveur externe
+	Notifications sur macOS/Linux (Windows uniquement pour la prioritaire)
+
+	Steps
+	Plugin Tauri notification — Configurer tauri-plugin-notification pour les toast Windows, permissions dans tauri.conf.json, intégration avec le store Zustand des préférences
+	Notifications prioritaires — Utiliser tauri-plugin-dialog pour créer des boîtes de dialogue modales natives bloquantes, déclenchées depuis Rust quand un message est marqué "prioritaire" par un admin
+	Badge barre des tâches — Implémenter le badge de comptage via l'API Windows (SetOverlayIcon) depuis Rust avec windows-rs ou l'API Tauri appropriée
+	Commandes Tauri notifications — cmd_send_priority_notification(message, conversation_id), cmd_update_notification_prefs(prefs), cmd_set_dnd_mode(enabled, start_hour, end_hour)
+	Paramètres notifications React — Page de préférences de notification : toggle par conversation, sélection son, plage horaire silencieuse, interrupteur mode prioritaire (admin seulement)
+	Gestion focus app — Quand l'app est minimisée/en background et qu'une notification est cliquée, la ramener au premier plan et naviguer vers la bonne conversation
+	
+	
+	
+6.Panel d'Administration
+	What & Why
+	Interface d'administration complète pour les admins système : synchronisation des utilisateurs depuis l'Active Directory, gestion des utilisateurs, suivi des logs applicatifs, et tableau de bord statistiques.
+
+	Done looks like
+	Page d'admin accessible uniquement aux utilisateurs avec rôle "system_admin"
+	Sync AD : bouton de synchronisation manuelle + sync automatique configurable (cron), affichage du diff (nouveaux users, désactivés, modifiés), confirmation avant application
+	Gestion des users : liste paginée de tous les utilisateurs, recherche, filtre par département/statut, possibilité de désactiver un compte localement, attribution du rôle system_admin
+	Logs applicatifs : viewer de logs en temps réel (connexions, déconnexions, messages envoyés, erreurs LDAP, syncs AD) avec filtre par niveau (INFO/WARN/ERROR), par utilisateur, par date
+	Statistiques : tableau de bord avec graphiques (messages/jour, utilisateurs actifs, groupes créés, pics d'utilisation, top utilisateurs)
+	Export des logs et statistiques en CSV/PDF
+	
+	Out of scope
+	Gestion des droits granulaires par groupe depuis l'admin
+	Audit trail cryptographiquement signé
+	
+	Steps
+	Schéma DB admin — Tables audit_logs (id, actor_id, action, target_type, target_id, details jsonb, created_at), sync_history (id, started_at, completed_at, users_added, users_disabled, users_updated, status, error), rôle system_admin dans la table users
+	Sync AD Rust — Module de synchronisation : lire tous les utilisateurs de l'AD (ldap3 search), comparer avec PostgreSQL, calculer le diff, appliquer (insert/update/soft-delete), enregistrer dans sync_history
+	Commandes Tauri admin — cmd_sync_ad(dry_run: bool), cmd_get_audit_logs(filters), cmd_get_stats(period), cmd_set_user_role, cmd_disable_user, cmd_get_sync_history
+	Layout admin — Navigation admin dédiée (sidebar secondaire), guard de route vérifiant le rôle system_admin
+	Page sync AD — Bouton sync, aperçu du diff avant confirmation, historique des dernières syncs avec statut, config de la sync automatique
+	Page logs — Table de logs avec colonnes (timestamp, niveau, acteur, action, détails), filtres dynamiques, rafraîchissement en temps réel via WebSocket, export CSV
+	Dashboard statistiques — Graphiques avec recharts/chart.js : messages dans le temps (line chart), utilisateurs actifs (bar chart), répartition des types de messages (pie), métriques clés (cards en haut)
+	Gestion des utilisateurs — Table paginée, recherche fulltext, actions par ligne (désactiver, promouvoir admin, voir profil), badges de statut
+	
+	
+7.Profil Utilisateur et Galerie Médias
+	What & Why
+	Page de profil détaillé de chaque utilisateur (style WhatsApp) avec infos AD, et galerie de tous les médias partagés dans les conversations et groupes.
+
+	Done looks like
+	Page de profil avec photo, nom complet, titre/poste (depuis AD), département, email, téléphone
+	Statut de présence (en ligne, absent, occupé, hors ligne) avec heure de dernière connexion
+	Message de statut personnalisable par l'utilisateur
+	Photo de profil modifiable (depuis l'AD ou upload manuel)
+	Galerie de médias partagés dans la conversation avec cet utilisateur : photos, vidéos, documents organisés en onglets
+	Liens et documents partagés listés proprement
+	Profil propre de l'utilisateur courant avec édition des infos modifiables
+
+	Out of scope
+	Stories / statuts éphémères style WhatsApp
+	Localisation GPS / partage de position
+
+	Steps
+	Schéma DB profils — Colonnes supplémentaires dans users : status_message, presence_status, last_seen, avatar_path, custom fields. Table user_presence pour le tracking temps réel de la présence
+	Commandes Tauri profil — cmd_get_user_profile(user_id), cmd_update_profile(fields), cmd_update_avatar(image_data), cmd_set_presence(status), cmd_get_shared_media(conversation_id, type, page)
+	Présence temps réel — Mise à jour de la présence via WebSocket (ping périodique), broadcast aux contacts quand le statut change, gestion du "hors ligne" après timeout d'inactivité
+	Page profil — Layout style WhatsApp : photo grande en haut, infos structurées, section médias partagés avec grille miniatures, onglets (Photos, Docs, Liens), action "Envoyer un message" depuis le profil
+	Galerie médias — Grid de miniatures cliquables pour les images, liste pour les documents avec icône de type, section liens avec prévisualisation URL, pagination, téléchargement
+	Mon profil — Page de mon propre profil avec édition : changer photo (crop intégré), modifier statut, message de statut, voir ses propres statistiques
+	
+	
+	
+8.Thème et Personnalisation
+	What & Why
+	Permettre à chaque utilisateur de personnaliser l'apparence de l'application : dark/light mode, couleur d'accent, fond de conversation. Persisté localement par utilisateur.
+
+	Done looks like
+	Toggle dark/light mode accessible depuis les paramètres et/ou un bouton rapide
+	Palette de couleurs d'accent sélectionnable (par défaut WhatsApp vert, + autres options: bleu, violet, orange, rouge)
+	Personnalisation du fond de la zone de chat (couleur unie ou motif WhatsApp-like)
+	Taille de police réglable (petit/moyen/grand)
+	Les préférences sont sauvegardées localement (tauri-plugin-store) et appliquées immédiatement
+	Prévisualisation en temps réel lors du changement de thème
+
+	Out of scope
+	Thèmes créés par les utilisateurs (custom CSS upload)
+	Synchronisation des préférences entre plusieurs postes
+
+	Steps
+	Système CSS variables — Définir toutes les couleurs comme variables CSS (--color-primary, --color-bg, --color-surface, --color-text, etc.), implémenter le switching de thème via changement de classe sur le root element
+	Store de thème Zustand — State : theme (dark/light), accentColor, chatBackground, fontSize. Actions : setTheme, setAccentColor, etc. Persistance via tauri-plugin-store
+	Page paramètres apparence — Section dédiée dans les paramètres : sélecteur dark/light (avec icônes soleil/lune), grille de couleurs d'accent, sélecteur de fond de chat, slider taille de police
+	Application temps réel — Les changements de thème s'appliquent immédiatement sans rechargement, prévisualisation live dans la page de paramètres
