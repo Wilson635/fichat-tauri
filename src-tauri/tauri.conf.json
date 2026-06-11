@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Enterprise Chat",
+  "productName": "FiChat",
   "version": "0.1.0",
   "identifier": "com.enterprise.chat",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Enterprise Chat",
+        "title": "FiChat",
         "width": 1200,
         "height": 750,
         "minWidth": 800,
@@ -29,8 +29,8 @@
     },
     "trayIcon": {
       "iconPath": "icons/icon.png",
-      "title": "Enterprise Chat",
-      "tooltip": "Enterprise Chat"
+      "title": "FiChat",
+      "tooltip": "FiChat"
     }
   },
   "bundle": {
