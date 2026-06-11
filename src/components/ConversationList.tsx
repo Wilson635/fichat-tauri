@@ -125,7 +125,7 @@ interface Props {
   onNewGroup?: () => void;
 }
 
-export function ConversationList({ searchQuery, onNewGroup }: Props) {
+export function ConversationList({ searchQuery }: Props) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const match = pathname.match(/\/conversations\/(\d+)/);

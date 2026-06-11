@@ -33,7 +33,7 @@ export function ProfilePage() {
   if (!user) return null;
 
   const hue = user.displayName.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 360;
-  const presenceOption = PRESENCE_OPTIONS.find((p) => p.value === user.presenceStatus) ?? PRESENCE_OPTIONS[0];
+  //const presenceOption = PRESENCE_OPTIONS.find((p) => p.value === user.presenceStatus) ?? PRESENCE_OPTIONS[0];
 
   const saveStatus = () => {
     updateProfile({ statusMessage });

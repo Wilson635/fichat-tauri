@@ -26,7 +26,7 @@ class WebSocketService {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private mockTimers: ReturnType<typeof setTimeout>[] = [];
   private connected = false;
-  private mockAutoResponseEnabled = true;
+  //private mockAutoResponseEnabled = true;
 
   on(listener: WsEventListener) {
     this.listeners.push(listener);
@@ -81,7 +81,7 @@ class WebSocketService {
     };
   }
 
-  private connectMock(token: string) {
+  private connectMock(_token: string) {
     if (this.connected) return;
     this.connected = true;
     // Simulate successful auth

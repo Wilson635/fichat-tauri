@@ -113,13 +113,29 @@ export const useNotificationStore = create<NotificationState>()(
 
       clearAll: () => set({ items: [] }),
 
-      setConvPrefs: (convId, prefs) =>
+      /*setConvPrefs: (convId, prefs) =>
         set((s) => ({
           convPrefs: {
             ...s.convPrefs,
             [convId]: { enabled: true, sound: true, ...(s.convPrefs[convId] ?? {}), ...prefs },
           },
-        })),
+        })),*/
+
+        setConvPrefs: (convId, prefs) =>
+            set((s) => {
+                // On récupère les préférences existantes ou les valeurs par défaut globales de l'appli
+                const existing = s.convPrefs[convId] ?? { enabled: true, sound: true };
+
+                return {
+                    convPrefs: {
+                        ...s.convPrefs,
+                        [convId]: {
+                            ...existing,
+                            ...prefs,
+                        } as ConvNotifPrefs,
+                    },
+                };
+            }),
 
       setDnd: (dndEnabled, dndStartHour, dndEndHour) =>
         set((s) => ({

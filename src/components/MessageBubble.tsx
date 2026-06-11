@@ -3,7 +3,7 @@ import { format, isToday, isYesterday } from "date-fns";
 import { fr } from "date-fns/locale";
 import type { MessageDto, AttachmentDto } from "@/services/chatService";
 import { useAuthStore } from "@/store/authStore";
-import { formatFileSize, isImage, isVideo, isAudio, isPdf } from "@/utils/fileUtils";
+import { formatFileSize, isImage, isVideo, isAudio } from "@/utils/fileUtils";
 
 export function formatDateSeparator(iso: string): string {
     const d = new Date(iso);
@@ -81,7 +81,7 @@ function DocCard({
     const handleSave = (e: React.MouseEvent) => {
         e.stopPropagation();
         const a = document.createElement("a");
-        a.href = attachment.url || attachment.dataUrl || "";
+        a.href = attachment.filePath || "";
         a.download = attachment.fileName;
         a.click();
     };
@@ -177,7 +177,7 @@ function AudioPlayer({ attachment, isOwn }: { attachment: AttachmentDto; isOwn: 
         <div className="flex items-center gap-3 px-3 py-2.5" style={{ minWidth: 220, maxWidth: 280 }}>
             <audio
                 ref={audioRef}
-                src={attachment.url}
+                src={attachment.filePath}
                 onTimeUpdate={() => {
                     const a = audioRef.current;
                     if (a && a.duration) setProgress(a.currentTime / a.duration);
@@ -267,7 +267,7 @@ function ImageAttachment({ attachment, isOwn, onOpen }: { attachment: Attachment
         );
     }
 
-    const src = attachment.thumbnail || attachment.url || attachment.dataUrl;
+    const src = attachment.thumbnail || attachment.filePath;
     return (
         <button onClick={onOpen} className="block w-full overflow-hidden rounded-xl focus:outline-none" style={{ maxWidth: 300 }}>
             {src ? (

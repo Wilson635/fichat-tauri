@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { chatService, isTauri, ConversationSummary, MessageDto, ParticipantInfo } from "@/services/chatService";
+import { chatService, isTauri, ConversationSummary, MessageDto } from "@/services/chatService";
 import { wsService } from "@/services/wsService";
 import { useAuthStore } from "@/store/authStore";
 import { useNotificationStore } from "@/store/notificationStore";
@@ -445,7 +445,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
               senderName: msg.senderName ?? "Inconnu",
               content: msg.content ?? "(message)",
               createdAt: msg.createdAt,
-              isPriority: msg.messageType === "priority",
+              isPriority:false
+              //isPriority: msg.messageType === "priority",
             });
           }
         }
