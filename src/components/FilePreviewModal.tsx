@@ -66,6 +66,70 @@ export function FilePreviewModal({ attachment, senderName, onClose }: Props) {
     setLoading(false);
   }, [attachment.filePath, attachment.fileType]);
 
+  // 1. Ajoutez cette petite fonction utilitaire en dehors du composant pour convertir le Base64 en Blob
+  const base64ToBlob = (b64Data: string, contentType = '', sliceSize = 512) => {
+    const byteCharacters = atob(b64Data);
+    const byteArrays = [];
+    for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+      const slice = byteCharacters.slice(offset, offset + sliceSize);
+      const byteNumbers = new Array(slice.length);
+      for (let i = 0; i < slice.length; i++) {
+        byteNumbers[i] = slice.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      byteArrays.push(byteArray);
+    }
+    return new Blob(byteArrays, { type: contentType });
+  };
+
+// 2. Mettez à jour le useEffect dans FilePreviewModal
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+
+    const fp = attachment.filePath;
+    let objectUrl: string | null = null;
+
+    // Si c'est déjà un data URL (Mode Web / LocalStorage)
+    if (fp.startsWith("data:")) {
+      setSrcUrl(fp);
+      setLoading(false);
+      return;
+    }
+
+    // Mode Tauri (Chemin absolu de fichier local)
+    if (isTauri()) {
+      chatService.getFileAsBase64(fp)
+          .then((b64) => {
+            // Résout votre problème : On force un type Mime Audio pour que la balise HTML5 sache quoi faire
+            let mime = attachment.fileType || "audio/mpeg";
+            if (mime === "application/octet-stream" && attachment.fileName.endsWith(".mp3")) {
+              mime = "audio/mpeg";
+            }
+
+            // Conversion en Blob URL pour des performances optimales avec l'élément <audio>
+            const blob = base64ToBlob(b64, mime);
+            objectUrl = URL.createObjectURL(blob);
+            setSrcUrl(objectUrl);
+          })
+          .catch((e) => {
+            console.error("Erreur de chargement du fichier audio :", e);
+            setError(String(e));
+          })
+          .finally(() => setLoading(false));
+    } else {
+      setSrcUrl(fp);
+      setLoading(false);
+    }
+
+    // Nettoyage de l'URL à la fermeture du composant pour éviter les fuites de mémoire
+    return () => {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [attachment.filePath, attachment.fileType, attachment.fileName]);
+
   // ── Pointer events for drag/resize ──────────────────────────────────────────
   const onPointerDownMove = useCallback((e: React.PointerEvent) => {
     e.currentTarget.setPointerCapture(e.pointerId);

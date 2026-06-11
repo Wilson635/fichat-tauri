@@ -281,6 +281,22 @@ export function dbUpdateMessageStatus(uid: number, convId: number, msgId: number
   if (m) { m.status = status; saveMsgsCache(uid); }
 }
 
+export function dbEditMessage(uid: number, convId: number, msgId: number, newContent: string): void {
+  const cache = getMsgsCache(uid);
+  const msgs = cache[convId];
+  if (!msgs) return;
+  const m = msgs.find((m) => m.id === msgId);
+  if (m) { m.content = newContent; m.isEdited = true; saveMsgsCache(uid); }
+}
+
+export function dbDeleteMessage(uid: number, convId: number, msgId: number): void {
+  const cache = getMsgsCache(uid);
+  const msgs = cache[convId];
+  if (!msgs) return;
+  const m = msgs.find((m) => m.id === msgId);
+  if (m) { m.isDeleted = true; m.content = null; m.attachments = []; saveMsgsCache(uid); }
+}
+
 export function dbInitConvMessages(uid: number, convId: number): void {
   const cache = getMsgsCache(uid);
   if (!cache[convId]) {

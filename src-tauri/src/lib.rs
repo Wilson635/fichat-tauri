@@ -92,6 +92,8 @@ pub fn run() {
             commands::chat::cmd_send_message_with_file,
             commands::chat::cmd_get_file_as_base64,
             commands::chat::cmd_get_conversation_media,
+            commands::chat::cmd_edit_message,
+            commands::chat::cmd_delete_message,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Enterprise Chat");

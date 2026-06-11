@@ -15,6 +15,8 @@ import {
   dbGetMessages,
   dbAddMessage,
   dbUpdateMessageStatus,
+  dbEditMessage,
+  dbDeleteMessage,
   dbInitConvMessages,
   nextId,
   getUserById,
@@ -23,7 +25,7 @@ import {
 // ─── Tauri detection ──────────────────────────────────────────────────────────
 
 export const isTauri = (): boolean =>
-  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+    typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 // ─── Tauri invoke helper ──────────────────────────────────────────────────────
 
@@ -201,10 +203,10 @@ export const chatService = {
   // ── Send message ─────────────────────────────────────────────────────────────
 
   async sendMessage(
-    conversationId: number,
-    content: string,
-    messageType: "text" | "image" | "file" = "text",
-    replyToId?: number,
+      conversationId: number,
+      content: string,
+      messageType: "text" | "image" | "file" = "text",
+      replyToId?: number,
   ): Promise<MessageDto> {
     if (!isTauri()) {
       const uid = currentUid();
@@ -242,6 +244,28 @@ export const chatService = {
     return mapMessage(raw);
   },
 
+  // ── Edit message ─────────────────────────────────────────────────────────────
+
+  async editMessage(conversationId: number, messageId: number, newContent: string): Promise<void> {
+    if (!isTauri()) {
+      dbEditMessage(currentUid(), conversationId, messageId, newContent);
+      return;
+    }
+    const token = useAuthStore.getState().token!;
+    await invoke("cmd_edit_message", { token, messageId, content: newContent });
+  },
+
+  // ── Delete message ────────────────────────────────────────────────────────────
+
+  async deleteMessage(conversationId: number, messageId: number): Promise<void> {
+    if (!isTauri()) {
+      dbDeleteMessage(currentUid(), conversationId, messageId);
+      return;
+    }
+    const token = useAuthStore.getState().token!;
+    await invoke("cmd_delete_message", { token, messageId });
+  },
+
   // ── Mark as read ─────────────────────────────────────────────────────────────
 
   async markAsRead(conversationId: number): Promise<void> {
@@ -270,7 +294,7 @@ export const chatService = {
         }
       }
       results.sort((a, b) =>
-        new Date(b.message.createdAt).getTime() - new Date(a.message.createdAt).getTime()
+          new Date(b.message.createdAt).getTime() - new Date(a.message.createdAt).getTime()
       );
       return results.slice(0, 50);
     }
@@ -286,7 +310,7 @@ export const chatService = {
     if (!isTauri()) {
       const q = query.toLowerCase();
       return dbGetMessages(currentUid(), conversationId).filter(
-        (m) => m.content?.toLowerCase().includes(q),
+          (m) => m.content?.toLowerCase().includes(q),
       );
     }
     const token = useAuthStore.getState().token!;
@@ -320,7 +344,7 @@ export const chatService = {
       const uid = currentUid();
       const convs = dbLoadConversations(uid);
       const existing = convs.find(
-        (c) => c.convType === "direct" && c.participants.some((p) => p.userId === otherUserId),
+          (c) => c.convType === "direct" && c.participants.some((p) => p.userId === otherUserId),
       );
       if (existing) return existing.id;
 
@@ -430,12 +454,12 @@ export const chatService = {
   // ── File message ─────────────────────────────────────────────────────────────
 
   async sendFileMessage(
-    conversationId: number,
-    content: string,
-    file: File,
-    thumbnail: string | null,
-    dataUrl: string,
-    replyToId?: number,
+      conversationId: number,
+      content: string,
+      file: File,
+      thumbnail: string | null,
+      dataUrl: string,
+      replyToId?: number,
   ): Promise<MessageDto> {
     if (!isTauri()) {
       const uid = currentUid();
@@ -513,7 +537,7 @@ export const chatService = {
         }
       }
       return items.sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       );
     }
     const token = useAuthStore.getState().token!;

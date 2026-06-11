@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { format, isToday, isYesterday } from "date-fns";
 import { fr } from "date-fns/locale";
 import type { MessageDto, AttachmentDto } from "@/services/chatService";
@@ -16,23 +16,26 @@ function formatMsgTime(iso: string): string {
     return format(new Date(iso), "HH:mm");
 }
 
+// ─── Status ticks (WhatsApp style) ────────────────────────────────────────────
 function StatusIcon({ status }: { status: MessageDto["status"] }) {
     if (status === "sending") return (
-        <svg className="w-3 h-3 opacity-60 animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="10" /></svg>
+        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} style={{ opacity: 0.5 }}>
+            <circle cx="12" cy="12" r="10" />
+        </svg>
     );
     if (status === "sent") return (
-        <svg className="w-3.5 h-3" viewBox="0 0 16 11" fill="currentColor" style={{ opacity: 0.7 }}>
+        <svg className="w-3.5 h-3" viewBox="0 0 16 11" fill="currentColor" style={{ opacity: 0.65 }}>
             <path d="M11.071.653a.75.75 0 0 1 .053 1.059l-6.25 7a.75.75 0 0 1-1.118-.006L1.28 5.842a.75.75 0 1 1 1.114-1.004l1.984 2.2 5.635-6.332a.75.75 0 0 1 1.058-.053Z" />
         </svg>
     );
     if (status === "delivered") return (
-        <svg className="w-4 h-3" viewBox="0 0 22 11" fill="currentColor" style={{ opacity: 0.7 }}>
+        <svg className="w-4 h-3" viewBox="0 0 22 11" fill="currentColor" style={{ opacity: 0.65 }}>
             <path d="M1.28 5.842a.75.75 0 1 1 1.114-1.004l1.984 2.2 5.635-6.332a.75.75 0 1 1 1.111 1.006l-6.25 7a.75.75 0 0 1-1.118-.006L1.28 5.842Z" />
             <path d="M8.28 5.842a.75.75 0 1 1 1.114-1.004l1.984 2.2 5.635-6.332a.75.75 0 1 1 1.111 1.006l-6.25 7a.75.75 0 0 1-1.118-.006L8.28 5.842Z" />
         </svg>
     );
     if (status === "read") return (
-        <svg className="w-4 h-3" viewBox="0 0 22 11" fill="currentColor" style={{ color: "var(--color-primary-300)" }}>
+        <svg className="w-4 h-3" viewBox="0 0 22 11" fill="currentColor" style={{ color: "rgba(255,255,255,0.85)" }}>
             <path d="M1.28 5.842a.75.75 0 1 1 1.114-1.004l1.984 2.2 5.635-6.332a.75.75 0 1 1 1.111 1.006l-6.25 7a.75.75 0 0 1-1.118-.006L1.28 5.842Z" />
             <path d="M8.28 5.842a.75.75 0 1 1 1.114-1.004l1.984 2.2 5.635-6.332a.75.75 0 1 1 1.111 1.006l-6.25 7a.75.75 0 0 1-1.118-.006L8.28 5.842Z" />
         </svg>
@@ -40,53 +43,118 @@ function StatusIcon({ status }: { status: MessageDto["status"] }) {
     return null;
 }
 
-// ─── Icônes SVG inline par type (sans getFileIcon) ────────────────────────────
-function DocIcon({ ext }: { ext: string }) {
-    const e = ext.toLowerCase();
-    if (["doc", "docx"].includes(e)) return (
-        <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-        </svg>
-    );
-    if (["xls", "xlsx", "csv"].includes(e)) return (
-        <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 0 1-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0 1 12 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0c0 .621.504 1.125 1.125 1.125h15c.621 0 1.125-.504 1.125-1.125m-18.375 0v7.5" />
-        </svg>
-    );
-    if (["ppt", "pptx"].includes(e)) return (
-        <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
-        </svg>
-    );
-    if (["zip", "rar", "7z", "tar", "gz"].includes(e)) return (
-        <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
-        </svg>
-    );
-    // default generic
-    return (
-        <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-        </svg>
-    );
-}
-
-// Couleurs neutres par extension (pas de getFileColor)
-function getDocAccent(ext: string): { bg: string; fg: string } {
-    const e = ext.toLowerCase();
-    if (["doc", "docx"].includes(e)) return { bg: "rgba(59,130,246,0.12)", fg: "#3b82f6" };
-    if (["xls", "xlsx", "csv"].includes(e)) return { bg: "rgba(34,197,94,0.12)", fg: "#22c55e" };
-    if (["ppt", "pptx"].includes(e)) return { bg: "rgba(249,115,22,0.12)", fg: "#f97316" };
-    if (["zip", "rar", "7z", "tar", "gz"].includes(e)) return { bg: "rgba(168,85,247,0.12)", fg: "#a855f7" };
-    if (["pdf"].includes(e)) return { bg: "rgba(239,68,68,0.12)", fg: "#ef4444" };
-    return { bg: "rgba(100,116,139,0.12)", fg: "#64748b" };
-}
-
+// ─── File type helpers ────────────────────────────────────────────────────────
 function getExtension(filename: string): string {
-    return filename.split(".").pop() ?? "";
+    return filename.split(".").pop()?.toLowerCase() ?? "";
 }
 
-// ─── Audio player inline ──────────────────────────────────────────────────────
+function getDocAccent(ext: string): { bg: string; fg: string; label: string } {
+    if (["doc", "docx"].includes(ext)) return { bg: "#2368c4", fg: "#fff", label: "WORD" };
+    if (["xls", "xlsx", "csv"].includes(ext)) return { bg: "#107c41", fg: "#fff", label: "EXCEL" };
+    if (["ppt", "pptx"].includes(ext)) return { bg: "#d35230", fg: "#fff", label: "PPT" };
+    if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) return { bg: "#78716c", fg: "#fff", label: "ZIP" };
+    if (ext === "pdf") return { bg: "#ef4444", fg: "#fff", label: "PDF" };
+    return { bg: "#64748b", fg: "#fff", label: ext.toUpperCase() || "DOC" };
+}
+
+// ─── Circular file icon badge (WhatsApp style) ────────────────────────────────
+function FileTypeBadge({ ext, size = 40 }: { ext: string; size?: number }) {
+    const accent = getDocAccent(ext);
+    return (
+        <div
+            className="rounded-full flex items-center justify-center shrink-0 font-bold"
+            style={{ width: size, height: size, backgroundColor: accent.bg, color: accent.fg, fontSize: size * 0.24 }}
+        >
+            {accent.label.slice(0, 4)}
+        </div>
+    );
+}
+
+// ─── WhatsApp-style document card ─────────────────────────────────────────────
+function DocCard({
+                     attachment, isOwn, onOpen,
+                 }: { attachment: AttachmentDto; isOwn: boolean; onOpen: () => void }) {
+    const ext = getExtension(attachment.fileName);
+    const accent = getDocAccent(ext);
+    const [thumbErr, setThumbErr] = useState(false);
+
+    const handleSave = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        const a = document.createElement("a");
+        a.href = attachment.url || attachment.dataUrl || "";
+        a.download = attachment.fileName;
+        a.click();
+    };
+
+    return (
+        <div className="w-full" style={{ minWidth: 240, maxWidth: 300 }}>
+            {/* Thumbnail preview (top section) */}
+            {attachment.thumbnail && !thumbErr ? (
+                <div className="w-full overflow-hidden rounded-t-xl" style={{ maxHeight: 160 }}>
+                    <img
+                        src={attachment.thumbnail}
+                        alt="aperçu"
+                        className="w-full object-cover object-top block"
+                        style={{ maxHeight: 160 }}
+                        onError={() => setThumbErr(true)}
+                    />
+                </div>
+            ) : (
+                <div
+                    className="w-full flex items-center justify-center rounded-t-xl"
+                    style={{
+                        height: 100,
+                        backgroundColor: isOwn ? "rgba(0,0,0,0.15)" : "var(--color-surface-secondary)",
+                    }}
+                >
+                    <div
+                        className="w-16 h-16 rounded-full flex items-center justify-center font-bold text-lg"
+                        style={{ backgroundColor: accent.bg, color: accent.fg }}
+                    >
+                        {accent.label.slice(0, 4)}
+                    </div>
+                </div>
+            )}
+
+            {/* Info row */}
+            <div className="flex items-center gap-3 px-3 py-2.5">
+                <FileTypeBadge ext={ext} size={38} />
+                <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium leading-tight truncate" style={{ color: isOwn ? "#fff" : "var(--color-text-primary)" }}>
+                        {attachment.fileName}
+                    </p>
+                    <p className="text-xs mt-0.5" style={{ color: isOwn ? "rgba(255,255,255,0.65)" : "var(--color-text-muted)" }}>
+                        {ext.toUpperCase()} · {formatFileSize(attachment.fileSize)}
+                    </p>
+                </div>
+            </div>
+
+            {/* Action buttons (WhatsApp style — green links) */}
+            <div
+                className="flex border-t"
+                style={{ borderColor: isOwn ? "rgba(255,255,255,0.18)" : "var(--color-border)" }}
+            >
+                <button
+                    onClick={(e) => { e.stopPropagation(); onOpen(); }}
+                    className="flex-1 py-2 text-xs font-semibold text-center transition-opacity hover:opacity-80"
+                    style={{ color: isOwn ? "rgba(255,255,255,0.9)" : "var(--color-primary-500)" }}
+                >
+                    Ouvrir
+                </button>
+                <div className="w-px" style={{ backgroundColor: isOwn ? "rgba(255,255,255,0.18)" : "var(--color-border)" }} />
+                <button
+                    onClick={handleSave}
+                    className="flex-1 py-2 text-xs font-semibold text-center transition-opacity hover:opacity-80"
+                    style={{ color: isOwn ? "rgba(255,255,255,0.9)" : "var(--color-primary-500)" }}
+                >
+                    Enregistrer sous…
+                </button>
+            </div>
+        </div>
+    );
+}
+
+// ─── Audio player ─────────────────────────────────────────────────────────────
 function AudioPlayer({ attachment, isOwn }: { attachment: AttachmentDto; isOwn: boolean }) {
     const [playing, setPlaying] = useState(false);
     const [progress, setProgress] = useState(0);
@@ -100,21 +168,13 @@ function AudioPlayer({ attachment, isOwn }: { attachment: AttachmentDto; isOwn: 
         else { a.play(); setPlaying(true); }
     };
 
-    const formatDur = (s: number) => {
+    const fmt = (s: number) => {
         if (!s || isNaN(s)) return "0:00";
-        const m = Math.floor(s / 60);
-        const sec = Math.floor(s % 60);
-        return `${m}:${sec.toString().padStart(2, "0")}`;
+        return `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, "0")}`;
     };
 
     return (
-        <div
-            className="flex items-center gap-3 mt-1 px-3 py-2.5 rounded-xl"
-            style={{
-                backgroundColor: isOwn ? "rgba(255,255,255,0.12)" : "var(--color-surface-secondary)",
-                minWidth: 220, maxWidth: 280,
-            }}
-        >
+        <div className="flex items-center gap-3 px-3 py-2.5" style={{ minWidth: 220, maxWidth: 280 }}>
             <audio
                 ref={audioRef}
                 src={attachment.url}
@@ -125,54 +185,36 @@ function AudioPlayer({ attachment, isOwn }: { attachment: AttachmentDto; isOwn: 
                 onLoadedMetadata={() => setDuration(audioRef.current?.duration ?? 0)}
                 onEnded={() => { setPlaying(false); setProgress(0); }}
             />
-            {/* Play/pause */}
             <button
                 onClick={toggle}
                 className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-opacity hover:opacity-80"
-                style={{
-                    backgroundColor: isOwn ? "rgba(255,255,255,0.2)" : "var(--color-primary-500)",
-                    color: isOwn ? "#fff" : "#fff",
-                }}
+                style={{ backgroundColor: isOwn ? "rgba(255,255,255,0.22)" : "var(--color-primary-500)", color: "#fff" }}
             >
-                {playing ? (
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-                    </svg>
-                ) : (
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M8 5v14l11-7z" />
-                    </svg>
-                )}
+                {playing
+                    ? <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
+                    : <svg className="w-4 h-4 ml-0.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                }
             </button>
-
             <div className="flex-1 flex flex-col gap-1.5 min-w-0">
-                {/* Waveform bar */}
-                <div className="relative h-6 flex items-center">
-                    {/* Fake waveform bars */}
-                    <div className="flex items-center gap-px w-full h-full">
-                        {Array.from({ length: 28 }).map((_, i) => {
-                            // Pseudo-random heights seeded by filename
-                            const seed = (attachment.fileName.charCodeAt(i % attachment.fileName.length) + i * 7) % 10;
-                            const h = 25 + seed * 7;
-                            const filled = i / 28 <= progress;
-                            return (
-                                <div
-                                    key={i}
-                                    className="flex-1 rounded-full transition-colors"
-                                    style={{
-                                        height: `${h}%`,
-                                        backgroundColor: filled
-                                            ? (isOwn ? "rgba(255,255,255,0.9)" : "var(--color-primary-500)")
-                                            : (isOwn ? "rgba(255,255,255,0.35)" : "var(--color-border)"),
-                                    }}
-                                />
-                            );
-                        })}
-                    </div>
+                <div className="flex items-center gap-px h-6">
+                    {Array.from({ length: 28 }).map((_, i) => {
+                        const seed = (attachment.fileName.charCodeAt(i % attachment.fileName.length) + i * 7) % 10;
+                        const h = 25 + seed * 7;
+                        const filled = i / 28 <= progress;
+                        return (
+                            <div key={i} className="flex-1 rounded-full transition-colors"
+                                 style={{
+                                     height: `${h}%`,
+                                     backgroundColor: filled
+                                         ? (isOwn ? "rgba(255,255,255,0.9)" : "var(--color-primary-500)")
+                                         : (isOwn ? "rgba(255,255,255,0.35)" : "var(--color-border)"),
+                                 }}
+                            />
+                        );
+                    })}
                 </div>
-                {/* Duration */}
                 <span className="text-xs" style={{ opacity: 0.6, fontSize: 10 }}>
-          {playing ? formatDur((audioRef.current?.currentTime ?? 0)) : formatDur(duration)}
+          {playing ? fmt(audioRef.current?.currentTime ?? 0) : fmt(duration)}
         </span>
             </div>
         </div>
@@ -185,192 +227,197 @@ function VideoPreview({ attachment, isOwn, onOpen }: { attachment: AttachmentDto
 
     if (attachment.thumbnail && !imgError) {
         return (
-            <button
-                onClick={onOpen}
-                className="relative block rounded-xl overflow-hidden mt-1 focus:outline-none"
-                style={{ maxWidth: 280 }}
-            >
-                <img
-                    src={attachment.thumbnail}
-                    alt={attachment.fileName}
-                    className="w-full object-cover"
-                    style={{ maxHeight: 180, display: "block" }}
-                    onError={() => setImgError(true)}
-                />
-                {/* Play overlay */}
-                <div className="absolute inset-0 flex items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.3)" }}>
-                    <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.55)" }}>
-                        <svg className="w-6 h-6 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M8 5v14l11-7z" />
-                        </svg>
+            <button onClick={onOpen} className="relative block w-full overflow-hidden rounded-xl focus:outline-none" style={{ maxHeight: 220 }}>
+                <img src={attachment.thumbnail} alt={attachment.fileName} className="w-full object-cover block" style={{ maxHeight: 220 }} onError={() => setImgError(true)} />
+                <div className="absolute inset-0 flex items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.28)" }}>
+                    <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.55)" }}>
+                        <svg className="w-7 h-7 text-white ml-1" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                     </div>
-                </div>
-                {/* Duration badge */}
-                <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded text-white text-xs font-medium" style={{ backgroundColor: "rgba(0,0,0,0.6)", fontSize: 10 }}>
-                    {formatFileSize(attachment.fileSize)}
                 </div>
             </button>
         );
     }
 
-    // Fallback chip
     return (
-        <button
-            onClick={onOpen}
-            className="flex items-center gap-3 mt-1 px-3 py-2.5 rounded-xl focus:outline-none hover:opacity-90 transition-opacity"
-            style={{ backgroundColor: isOwn ? "rgba(255,255,255,0.15)" : "var(--color-surface-secondary)", maxWidth: 280 }}
-        >
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: "rgba(139,92,246,0.15)" }}>
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "#8b5cf6" }}>
+        <button onClick={onOpen} className="flex items-center gap-3 px-3 py-2.5 focus:outline-none" style={{ minWidth: 200 }}>
+            <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: isOwn ? "rgba(255,255,255,0.22)" : "var(--color-primary-500)", color: "#fff" }}>
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" />
                 </svg>
             </div>
             <div className="flex-1 min-w-0 text-left">
-                <p className="text-xs font-medium truncate">{attachment.fileName}</p>
+                <p className="text-sm font-medium truncate">{attachment.fileName}</p>
                 <p className="text-xs opacity-60">{formatFileSize(attachment.fileSize)}</p>
             </div>
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 opacity-60 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
         </button>
     );
 }
 
-// ─── PDF preview ──────────────────────────────────────────────────────────────
-function PdfPreview({ attachment, isOwn, onOpen }: { attachment: AttachmentDto; isOwn: boolean; onOpen: () => void }) {
-    const [imgError, setImgError] = useState(false);
-    const accent = getDocAccent("pdf");
-
-    return (
-        <button
-            onClick={onOpen}
-            className="flex flex-col rounded-xl overflow-hidden mt-1 focus:outline-none hover:opacity-90 transition-opacity text-left"
-            style={{
-                backgroundColor: isOwn ? "rgba(255,255,255,0.12)" : "var(--color-surface-secondary)",
-                maxWidth: 280, minWidth: 200,
-            }}
-        >
-            {/* Thumbnail strip */}
-            {attachment.thumbnail && !imgError ? (
-                <img
-                    src={attachment.thumbnail}
-                    alt="aperçu PDF"
-                    className="w-full object-cover object-top"
-                    style={{ maxHeight: 140, display: "block" }}
-                    onError={() => setImgError(true)}
-                />
-            ) : (
-                <div
-                    className="w-full flex items-center justify-center"
-                    style={{ height: 80, backgroundColor: isOwn ? "rgba(255,255,255,0.08)" : "var(--color-border)" }}
-                >
-                    <svg viewBox="0 0 48 48" className="w-10 h-10" fill="none">
-                        <rect width="48" height="48" rx="8" fill={accent.bg} />
-                        <text x="50%" y="60%" textAnchor="middle" fill={accent.fg} fontSize="14" fontWeight="700" fontFamily="sans-serif">PDF</text>
-                    </svg>
-                </div>
-            )}
-            {/* Footer row */}
-            <div className="flex items-center gap-2 px-3 py-2">
-                <div
-                    className="w-7 h-7 rounded-md flex items-center justify-center shrink-0"
-                    style={{ backgroundColor: accent.bg, color: accent.fg }}
-                >
-                    <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-                    </svg>
-                </div>
-                <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold truncate" style={{ color: "inherit" }}>{attachment.fileName}</p>
-                    <p className="text-xs opacity-60">{formatFileSize(attachment.fileSize)}</p>
-                </div>
-            </div>
-        </button>
-    );
-}
-
-// ─── Generic document chip ────────────────────────────────────────────────────
-function DocChip({ attachment, isOwn, onOpen }: { attachment: AttachmentDto; isOwn: boolean; onOpen: () => void }) {
-    const ext = getExtension(attachment.fileName);
-    const accent = getDocAccent(ext);
-
-    return (
-        <button
-            onClick={onOpen}
-            className="flex items-center gap-3 mt-1 px-3 py-2.5 rounded-xl focus:outline-none hover:opacity-90 transition-opacity"
-            style={{
-                backgroundColor: isOwn ? "rgba(255,255,255,0.12)" : "var(--color-surface-secondary)",
-                maxWidth: 300,
-            }}
-        >
-            <div
-                className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-                style={{ backgroundColor: accent.bg, color: accent.fg }}
-            >
-                <DocIcon ext={ext} />
-            </div>
-            <div className="flex-1 min-w-0 text-left">
-                <p className="text-xs font-semibold truncate">{attachment.fileName}</p>
-                <p className="text-xs opacity-60">{formatFileSize(attachment.fileSize)}</p>
-            </div>
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 opacity-50 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-        </button>
-    );
-}
-
-// ─── Single attachment dispatcher ─────────────────────────────────────────────
-function AttachmentView({
-                            attachment, isOwn, onOpen,
-                        }: {
-    attachment: AttachmentDto;
-    isOwn: boolean;
-    onOpen: (att: AttachmentDto) => void;
-}) {
+// ─── Image (single) ───────────────────────────────────────────────────────────
+function ImageAttachment({ attachment, isOwn, onOpen }: { attachment: AttachmentDto; isOwn: boolean; onOpen: () => void }) {
     const [imgError, setImgError] = useState(false);
 
-    if (isImage(attachment.fileType) && !imgError) {
+    if (imgError) {
         return (
-            <button
-                onClick={() => onOpen(attachment)}
-                className="block rounded-xl overflow-hidden focus:outline-none mt-1"
-                style={{ maxWidth: 280 }}
-                title="Voir l'image"
-            >
-                {attachment.thumbnail ? (
-                    <img
-                        src={attachment.thumbnail}
-                        alt={attachment.fileName}
-                        className="w-full object-cover"
-                        style={{ maxHeight: 220, display: "block" }}
-                        onError={() => setImgError(true)}
-                    />
-                ) : (
-                    <div className="flex items-center justify-center w-48 h-32 rounded-xl" style={{ backgroundColor: isOwn ? "rgba(255,255,255,0.15)" : "var(--color-surface-secondary)" }}>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                    </div>
-                )}
-            </button>
+            <div className="flex items-center justify-center w-48 h-32 rounded-xl" style={{ backgroundColor: isOwn ? "rgba(255,255,255,0.15)" : "var(--color-surface-secondary)" }}>
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+            </div>
         );
     }
 
+    const src = attachment.thumbnail || attachment.url || attachment.dataUrl;
+    return (
+        <button onClick={onOpen} className="block w-full overflow-hidden rounded-xl focus:outline-none" style={{ maxWidth: 300 }}>
+            {src ? (
+                <img src={src} alt={attachment.fileName} className="w-full object-cover block" style={{ maxHeight: 260 }} onError={() => setImgError(true)} />
+            ) : (
+                <div className="w-48 h-32 flex items-center justify-center" style={{ backgroundColor: "var(--color-surface-secondary)" }}>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                </div>
+            )}
+        </button>
+    );
+}
+
+// ─── Attachment dispatcher ────────────────────────────────────────────────────
+function AttachmentView({
+                            attachment, isOwn, onOpen,
+                        }: { attachment: AttachmentDto; isOwn: boolean; onOpen: (a: AttachmentDto) => void }) {
+    if (isImage(attachment.fileType)) {
+        return <ImageAttachment attachment={attachment} isOwn={isOwn} onOpen={() => onOpen(attachment)} />;
+    }
     if (isVideo(attachment.fileType)) {
         return <VideoPreview attachment={attachment} isOwn={isOwn} onOpen={() => onOpen(attachment)} />;
     }
-
     if (isAudio(attachment.fileType)) {
         return <AudioPlayer attachment={attachment} isOwn={isOwn} />;
     }
+    return <DocCard attachment={attachment} isOwn={isOwn} onOpen={() => onOpen(attachment)} />;
+}
 
-    if (isPdf(attachment.fileType)) {
-        return <PdfPreview attachment={attachment} isOwn={isOwn} onOpen={() => onOpen(attachment)} />;
-    }
+// ─── Context menu ─────────────────────────────────────────────────────────────
+interface CtxMenu {
+    x: number;
+    y: number;
+}
 
-    return <DocChip attachment={attachment} isOwn={isOwn} onOpen={() => onOpen(attachment)} />;
+interface CtxMenuProps {
+    pos: CtxMenu;
+    isOwn: boolean;
+    hasText: boolean;
+    onClose: () => void;
+    onReply: () => void;
+    onCopy: () => void;
+    onEdit: () => void;
+    onDelete: () => void;
+}
+
+function ContextMenu({ pos, isOwn, hasText, onClose, onReply, onCopy, onEdit, onDelete }: CtxMenuProps) {
+    const ref = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+        };
+        const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+        document.addEventListener("mousedown", handler);
+        document.addEventListener("keydown", esc);
+        return () => {
+            document.removeEventListener("mousedown", handler);
+            document.removeEventListener("keydown", esc);
+        };
+    }, [onClose]);
+
+    // Adjust position to stay in viewport
+    const menuW = 200;
+    const menuH = 160;
+    const left = Math.min(pos.x, window.innerWidth - menuW - 8);
+    const top = Math.min(pos.y, window.innerHeight - menuH - 8);
+
+    const items = [
+        {
+            icon: (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                </svg>
+            ),
+            label: "Répondre",
+            action: () => { onReply(); onClose(); },
+            show: true,
+        },
+        {
+            icon: (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+            ),
+            label: "Copier le texte",
+            action: () => { onCopy(); onClose(); },
+            show: hasText,
+        },
+        {
+            icon: (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+            ),
+            label: "Modifier",
+            action: () => { onEdit(); onClose(); },
+            show: isOwn && hasText,
+        },
+        {
+            icon: (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+            ),
+            label: "Supprimer",
+            action: () => { onDelete(); onClose(); },
+            show: isOwn,
+            danger: true,
+        },
+        {
+            icon: (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            ),
+            label: "Fermer",
+            action: onClose,
+            show: true,
+        },
+    ];
+
+    return (
+        <div
+            ref={ref}
+            className="fixed z-[9999] rounded-xl shadow-2xl overflow-hidden py-1"
+            style={{
+                left,
+                top,
+                minWidth: menuW,
+                backgroundColor: "var(--color-surface)",
+                border: "1px solid var(--color-border)",
+            }}
+            onContextMenu={(e) => e.preventDefault()}
+        >
+            {items.filter((i) => i.show).map((item, idx) => (
+                <button
+                    key={idx}
+                    onClick={item.action}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                    style={{ color: item.danger ? "#ef4444" : "var(--color-text-primary)" }}
+                >
+                    <span style={{ color: item.danger ? "#ef4444" : "var(--color-text-muted)" }}>{item.icon}</span>
+                    {item.label}
+                </button>
+            ))}
+        </div>
+    );
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -378,18 +425,31 @@ interface Props {
     message: MessageDto;
     showSenderName: boolean;
     onReply: (msg: MessageDto) => void;
+    onEdit?: (msg: MessageDto) => void;
+    onDelete?: (msg: MessageDto) => void;
     onOpenPreview?: (att: AttachmentDto) => void;
 }
 
 // ─── MessageBubble ────────────────────────────────────────────────────────────
-export function MessageBubble({ message, showSenderName, onReply, onOpenPreview }: Props) {
+export function MessageBubble({ message, showSenderName, onReply, onEdit, onDelete, onOpenPreview }: Props) {
     const { user } = useAuthStore();
     const isOwn = message.senderId === user?.id;
+    const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
     const [hovered, setHovered] = useState(false);
 
+    const handleContextMenu = useCallback((e: React.MouseEvent) => {
+        e.preventDefault();
+        setCtxMenu({ x: e.clientX, y: e.clientY });
+    }, []);
+
+    const handleCopy = useCallback(() => {
+        if (message.content) navigator.clipboard.writeText(message.content).catch(() => {});
+    }, [message.content]);
+
+    // ── System message ──
     if (message.messageType === "system") {
         return (
-            <div className="flex justify-center my-2 px-4">
+            <div className="flex justify-center my-1.5 px-4">
         <span className="text-xs px-3 py-1.5 rounded-full" style={{ backgroundColor: "var(--color-surface-secondary)", color: "var(--color-text-muted)" }}>
           {message.content}
         </span>
@@ -397,11 +457,13 @@ export function MessageBubble({ message, showSenderName, onReply, onOpenPreview 
         );
     }
 
+    // ── Deleted message ──
     if (message.isDeleted) {
         return (
-            <div className={`flex ${isOwn ? "justify-end" : "justify-start"} mb-1`}>
-                <div className="px-3 py-2 rounded-lg text-sm italic max-w-xs" style={{ backgroundColor: "var(--color-surface-secondary)", color: "var(--color-text-muted)" }}>
-                    🚫 Message supprimé
+            <div className={`flex ${isOwn ? "justify-end" : "justify-start"} mb-0.5 px-3`}>
+                <div className="px-3 py-2 rounded-xl text-sm italic max-w-xs flex items-center gap-2" style={{ backgroundColor: "var(--color-surface-secondary)", color: "var(--color-text-muted)" }}>
+                    <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="10" /><path strokeLinecap="round" d="M8 8l8 8M16 8l-8 8" /></svg>
+                    Message supprimé
                 </div>
             </div>
         );
@@ -412,119 +474,181 @@ export function MessageBubble({ message, showSenderName, onReply, onOpenPreview 
 
     const hasText = !!message.content?.trim();
     const atts = message.attachments ?? [];
+    const hasOnlyMedia = atts.length > 0 && !hasText && (isImage(atts[0]?.fileType) || isVideo(atts[0]?.fileType));
 
-    const bubbleStyle: React.CSSProperties = {
-        backgroundColor: isOwn ? "var(--color-primary-500)" : "var(--color-surface)",
-        borderRadius: isOwn ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-        color: isOwn ? "#fff" : "var(--color-text-primary)",
-    };
+    // WhatsApp bubble colors
+    const ownBg = "var(--color-primary-500)";
+    const otherBg = "var(--color-surface)";
 
     return (
-        <div
-            className={`flex ${isOwn ? "justify-end" : "justify-start"} mb-1 group px-2`}
-            onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => setHovered(false)}
-        >
-            {!isOwn && (
-                <div
-                    className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 mr-2 mt-1 self-end"
-                    style={{ backgroundColor: `hsl(${hue}, 55%, 45%)` }}
-                >
-                    {initials}
-                </div>
-            )}
-
-            <div className={`flex flex-col max-w-[70%] ${isOwn ? "items-end" : "items-start"}`}>
-                {showSenderName && !isOwn && (
-                    <span className="text-xs font-semibold mb-1 ml-1" style={{ color: `hsl(${hue}, 55%, 45%)` }}>
-            {message.senderName}
-          </span>
-                )}
-
-                <div className="relative flex items-end gap-1">
-                    {/* Reply button (own messages, left side) */}
-                    {isOwn && hovered && (
-                        <button
-                            onClick={() => onReply(message)}
-                            className="w-6 h-6 rounded-full flex items-center justify-center opacity-80 hover:opacity-100 transition-opacity"
-                            style={{ backgroundColor: "var(--color-surface-secondary)" }}
-                            title="Répondre"
+        <>
+            <div
+                className={`flex ${isOwn ? "justify-end" : "justify-start"} mb-0.5 px-2`}
+                onMouseEnter={() => setHovered(true)}
+                onMouseLeave={() => setHovered(false)}
+            >
+                {/* Avatar for others */}
+                {!isOwn && (
+                    <div className="flex flex-col justify-end mr-1.5 mb-1 shrink-0">
+                        <div
+                            className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold"
+                            style={{ backgroundColor: `hsl(${hue}, 55%, 45%)` }}
                         >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "var(--color-text-muted)" }}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-                            </svg>
-                        </button>
-                    )}
-
-                    {/* Bubble */}
-                    <div className="px-3 py-2 rounded-2xl shadow-sm" style={bubbleStyle}>
-                        {/* Quote */}
-                        {message.replyToId && message.replyToContent && (
-                            <div
-                                className="mb-2 px-2 py-1.5 rounded-lg text-xs border-l-2 opacity-80"
-                                style={{
-                                    backgroundColor: isOwn ? "rgba(255,255,255,0.15)" : "var(--color-surface-secondary)",
-                                    borderColor: isOwn ? "rgba(255,255,255,0.6)" : "var(--color-primary-500)",
-                                }}
-                            >
-                <span className="font-semibold block mb-0.5" style={{ color: isOwn ? "rgba(255,255,255,0.9)" : "var(--color-primary-500)" }}>
-                  Citation
-                </span>
-                                <span className="line-clamp-2">{message.replyToContent}</span>
-                            </div>
-                        )}
-
-                        {/* Attachments */}
-                        {atts.map((att) => (
-                            <AttachmentView
-                                key={att.id}
-                                attachment={att}
-                                isOwn={isOwn}
-                                onOpen={(a) => onOpenPreview?.(a)}
-                            />
-                        ))}
-
-                        {/* Text content */}
-                        {hasText && (
-                            <span className={`text-sm leading-relaxed whitespace-pre-wrap break-words ${atts.length > 0 ? "mt-1 block" : ""}`}>
-                {message.content}
-              </span>
-                        )}
-                        {message.isEdited && (
-                            <span className="text-xs ml-1 opacity-60">(modifié)</span>
-                        )}
-
-                        {/* Time + status */}
-                        <div className="flex items-center gap-1 mt-0.5 justify-end">
-                            <span className="text-xs opacity-60">{formatMsgTime(message.createdAt)}</span>
-                            {isOwn && <span className="opacity-80"><StatusIcon status={message.status} /></span>}
+                            {initials}
                         </div>
                     </div>
+                )}
 
-                    {/* Reply button (others, right side) */}
-                    {!isOwn && hovered && (
-                        <button
-                            onClick={() => onReply(message)}
-                            className="w-6 h-6 rounded-full flex items-center justify-center opacity-80 hover:opacity-100 transition-opacity"
-                            style={{ backgroundColor: "var(--color-surface-secondary)" }}
-                            title="Répondre"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "var(--color-text-muted)" }}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-                            </svg>
-                        </button>
+                <div className={`flex flex-col max-w-[72%] ${isOwn ? "items-end" : "items-start"}`}>
+                    {/* Sender name */}
+                    {showSenderName && !isOwn && (
+                        <span className="text-xs font-semibold mb-0.5 ml-2" style={{ color: `hsl(${hue}, 55%, 45%)` }}>
+              {message.senderName}
+            </span>
                     )}
+
+                    <div className="relative flex items-end gap-1.5">
+                        {/* Reply button for own messages */}
+                        {isOwn && hovered && (
+                            <button
+                                onClick={() => onReply(message)}
+                                className="w-7 h-7 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:opacity-100"
+                                style={{ backgroundColor: "var(--color-surface-secondary)", opacity: 0.85 }}
+                                title="Répondre"
+                            >
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "var(--color-text-muted)" }}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                                </svg>
+                            </button>
+                        )}
+
+                        {/* ── Bubble ── */}
+                        <div
+                            className="relative overflow-hidden"
+                            style={{
+                                backgroundColor: isOwn ? ownBg : otherBg,
+                                borderRadius: isOwn
+                                    ? "16px 16px 4px 16px"
+                                    : "16px 16px 16px 4px",
+                                color: isOwn ? "#fff" : "var(--color-text-primary)",
+                                boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
+                            }}
+                            onContextMenu={handleContextMenu}
+                        >
+                            {/* WhatsApp tail (SVG triangle) */}
+                            {isOwn ? (
+                                <svg
+                                    className="absolute bottom-0 right-0"
+                                    style={{ transform: "translateX(100%) translateY(0)" }}
+                                    width="8" height="13" viewBox="0 0 8 13"
+                                >
+                                    <path d="M0 0 Q0 11 8 13 L0 13 Z" fill={ownBg} />
+                                </svg>
+                            ) : (
+                                <svg
+                                    className="absolute bottom-0 left-0"
+                                    style={{ transform: "translateX(-100%) translateY(0)" }}
+                                    width="8" height="13" viewBox="0 0 8 13"
+                                >
+                                    <path d="M8 0 Q8 11 0 13 L8 13 Z" fill={otherBg} />
+                                </svg>
+                            )}
+
+                            {/* Quote / reply preview */}
+                            {message.replyToId && message.replyToContent && (
+                                <div
+                                    className="mx-2 mt-2 mb-1 px-2.5 py-1.5 rounded-lg text-xs border-l-[3px]"
+                                    style={{
+                                        backgroundColor: isOwn ? "rgba(0,0,0,0.15)" : "var(--color-surface-secondary)",
+                                        borderColor: isOwn ? "rgba(255,255,255,0.6)" : "var(--color-primary-500)",
+                                    }}
+                                >
+                  <span className="font-semibold block mb-0.5" style={{ color: isOwn ? "rgba(255,255,255,0.9)" : "var(--color-primary-500)" }}>
+                    Citation
+                  </span>
+                                    <span className="line-clamp-2" style={{ color: isOwn ? "rgba(255,255,255,0.8)" : "var(--color-text-secondary)" }}>
+                    {message.replyToContent}
+                  </span>
+                                </div>
+                            )}
+
+                            {/* Attachments */}
+                            {atts.map((att) => (
+                                <AttachmentView
+                                    key={att.id}
+                                    attachment={att}
+                                    isOwn={isOwn}
+                                    onOpen={(a) => onOpenPreview?.(a)}
+                                />
+                            ))}
+
+                            {/* Text content */}
+                            {hasText && (
+                                <div className={`px-3 ${atts.length > 0 ? "pt-1 pb-1" : "pt-2 pb-1.5"}`}>
+                  <span className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                    {message.content}
+                  </span>
+                                    {message.isEdited && (
+                                        <span className="text-xs ml-1 opacity-55">(modifié)</span>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Time + status row */}
+                            <div
+                                className={`flex items-center justify-end gap-1 pr-2 ${hasText ? "pb-1.5" : hasOnlyMedia ? "absolute bottom-2 right-2" : "pb-2"}`}
+                                style={hasOnlyMedia ? {
+                                    backgroundColor: "rgba(0,0,0,0.38)",
+                                    borderRadius: 8,
+                                    padding: "1px 5px",
+                                } : {}}
+                            >
+                <span className="text-xs" style={{ opacity: hasOnlyMedia ? 1 : 0.65, color: hasOnlyMedia ? "#fff" : "inherit" }}>
+                  {formatMsgTime(message.createdAt)}
+                </span>
+                                {isOwn && <StatusIcon status={message.status} />}
+                            </div>
+                        </div>
+
+                        {/* Reply button for others */}
+                        {!isOwn && hovered && (
+                            <button
+                                onClick={() => onReply(message)}
+                                className="w-7 h-7 rounded-full flex items-center justify-center transition-opacity hover:opacity-100"
+                                style={{ backgroundColor: "var(--color-surface-secondary)", opacity: 0.85 }}
+                                title="Répondre"
+                            >
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "var(--color-text-muted)" }}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                                </svg>
+                            </button>
+                        )}
+                    </div>
                 </div>
             </div>
-        </div>
+
+            {/* Context menu */}
+            {ctxMenu && (
+                <ContextMenu
+                    pos={ctxMenu}
+                    isOwn={isOwn}
+                    hasText={hasText}
+                    onClose={() => setCtxMenu(null)}
+                    onReply={() => onReply(message)}
+                    onCopy={handleCopy}
+                    onEdit={() => onEdit?.(message)}
+                    onDelete={() => onDelete?.(message)}
+                />
+            )}
+        </>
     );
 }
 
 export function DateSeparator({ label }: { label: string }) {
     return (
-        <div className="flex items-center gap-3 my-4 px-4">
+        <div className="flex items-center gap-3 my-3 px-4">
             <div className="flex-1 h-px" style={{ backgroundColor: "var(--color-border)" }} />
-            <span className="text-xs font-medium px-3 py-1 rounded-full" style={{ backgroundColor: "var(--color-surface-secondary)", color: "var(--color-text-muted)" }}>
+            <span className="text-xs font-medium px-3 py-1 rounded-full shadow-sm" style={{ backgroundColor: "var(--color-surface)", color: "var(--color-text-muted)", border: "1px solid var(--color-border)" }}>
         {label}
       </span>
             <div className="flex-1 h-px" style={{ backgroundColor: "var(--color-border)" }} />

@@ -42,6 +42,8 @@ export function ChatPage() {
     loadMoreMessages,
     sendMessage,
     sendFileMessage,
+    editMessage,
+    deleteMessage,
     markAsRead,
     setCurrentConversation,
   } = useChatStore();
@@ -56,6 +58,7 @@ export function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [replyTo, setReplyTo] = useState<MessageDto | null>(null);
+  const [editingMessage, setEditingMessage] = useState<MessageDto | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [scrolledToBottom, setScrolledToBottom] = useState(true);
@@ -172,31 +175,45 @@ export function ChatPage() {
   }, [convId]);
 
   const handleSend = useCallback(
-    (content: string, replyToId?: number) => {
-      sendMessage(convId, content, replyToId);
-    },
-    [convId, sendMessage],
+      (content: string, replyToId?: number) => {
+        if (editingMessage) {
+          editMessage(convId, editingMessage.id, content);
+          setEditingMessage(null);
+        } else {
+          sendMessage(convId, content, replyToId);
+        }
+      },
+      [convId, sendMessage, editMessage, editingMessage],
   );
 
+  const handleEditMessage = useCallback((msg: MessageDto) => {
+    setEditingMessage(msg);
+    setReplyTo(null);
+  }, []);
+
+  const handleDeleteMessage = useCallback((msg: MessageDto) => {
+    deleteMessage(convId, msg.id);
+  }, [convId, deleteMessage]);
+
   const handleSendFile = useCallback(
-    (file: File, thumbnail: string | null, dataUrl: string, caption: string, replyToId?: number) => {
-      sendFileMessage(convId, caption, file, thumbnail, dataUrl, replyToId);
-      setReplyTo(null);
-    },
-    [convId, sendFileMessage],
+      (file: File, thumbnail: string | null, dataUrl: string, caption: string, replyToId?: number) => {
+        sendFileMessage(convId, caption, file, thumbnail, dataUrl, replyToId);
+        setReplyTo(null);
+      },
+      [convId, sendFileMessage],
   );
 
   const filteredMessages = searchQuery.trim()
-    ? messages.filter((m) => m.content?.toLowerCase().includes(searchQuery.toLowerCase()))
-    : messages;
+      ? messages.filter((m) => m.content?.toLowerCase().includes(searchQuery.toLowerCase()))
+      : messages;
 
   if (!conversation) {
     return (
-      <div className="chat-bg flex items-center justify-center h-full">
-        <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
-          Conversation introuvable
-        </p>
-      </div>
+        <div className="chat-bg flex items-center justify-center h-full">
+          <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+            Conversation introuvable
+          </p>
+        </div>
     );
   }
 
@@ -223,274 +240,278 @@ export function ChatPage() {
   };
 
   return (
-    <div className="flex h-full" style={{ backgroundColor: "var(--color-surface)" }}>
-      {/* ── Main chat column ─────────────────────────────────────── */}
-      <div className="flex flex-col flex-1 min-w-0 h-full">
+      <div className="flex h-full" style={{ backgroundColor: "var(--color-surface)" }}>
+        {/* ── Main chat column ─────────────────────────────────────── */}
+        <div className="flex flex-col flex-1 min-w-0 h-full">
 
-      {/* ── Header ─────────────────────────────────────────────── */}
-      <div
-        className="flex items-center gap-3 px-4 py-3 shrink-0 border-b"
-        style={{
-          backgroundColor: "var(--color-header-bg)",
-          borderColor: "var(--color-border)",
-        }}
-      >
-        {/* Back button on narrow screens */}
-        <button
-          onClick={() => navigate("/")}
-          className="md:hidden w-8 h-8 flex items-center justify-center rounded-full"
-          style={{ color: "var(--color-text-muted)" }}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-
-        {/* Avatar + name — clickable to open panel */}
-        <button
-          onClick={handleHeaderClick}
-          className="flex items-center gap-3 flex-1 min-w-0 text-left"
-        >
-          <div className="relative shrink-0">
-            {conversation.avatarPath ? (
-              <img src={conversation.avatarPath} alt={conversation.name} className="w-10 h-10 rounded-full object-cover" />
-            ) : (
-              <div
-                className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm"
-                style={{
-                  backgroundColor: `hsl(${conversation.name.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 360}, 55%, 45%)`,
-                }}
-              >
-                {conversation.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
-              </div>
-            )}
-            {presenceStatus && presenceStatus !== "offline" && (
-              <span
-                className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2"
-                style={{ backgroundColor: presenceColors[presenceStatus], borderColor: "var(--color-header-bg)" }}
-              />
-            )}
-          </div>
-
-          {/* Name & status */}
-          <div className="flex-1 min-w-0">
-            <h2 className="font-semibold text-sm truncate" style={{ color: "var(--color-text-primary)" }}>
-              {conversation.name}
-            </h2>
-            {isGroup ? (
-              <p className="text-xs truncate" style={{ color: "var(--color-text-muted)" }}>
-                {conversation.participants.length} participants
-                {otherParticipants.filter((p) => p.presenceStatus === "online").length > 0 && (
-                  <> · {otherParticipants.filter((p) => p.presenceStatus === "online").length} en ligne</>
-                )}
-              </p>
-            ) : (
-              presenceStatus && (
-                <p className="text-xs" style={{ color: presenceColors[presenceStatus] }}>
-                  {presenceLabels[presenceStatus]}
-                </p>
-              )
-            )}
-          </div>
-        </button>
-
-        {/* Actions */}
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={() => setSearchOpen((v) => !v)}
-            className="w-9 h-9 flex items-center justify-center rounded-full transition-colors"
-            style={{ color: searchOpen ? "var(--color-primary-500)" : "var(--color-text-muted)" }}
-            title="Rechercher"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-          </button>
-          {/* Info panel toggle */}
-          <button
-            onClick={handleHeaderClick}
-            className="w-9 h-9 flex items-center justify-center rounded-full transition-colors"
-            style={{ color: showPanel ? "var(--color-primary-500)" : "var(--color-text-muted)" }}
-            title={isGroup ? "Infos groupe" : "Profil"}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* ── Search bar ──────────────────────────────────────────── */}
-      {searchOpen && (
-        <div
-          className="px-4 py-2 shrink-0 border-b"
-          style={{ backgroundColor: "var(--color-surface-secondary)", borderColor: "var(--color-border)" }}
-        >
+          {/* ── Header ─────────────────────────────────────────────── */}
           <div
-            className="flex items-center gap-2 rounded-lg px-3 py-2"
-            style={{ backgroundColor: "var(--color-surface)" }}
+              className="flex items-center gap-3 px-4 py-3 shrink-0 border-b"
+              style={{
+                backgroundColor: "var(--color-header-bg)",
+                borderColor: "var(--color-border)",
+              }}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "var(--color-text-muted)" }}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              autoFocus
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Rechercher dans les messages…"
-              className="flex-1 bg-transparent text-sm outline-none"
-              style={{ color: "var(--color-text-primary)" }}
-            />
-            {searchQuery && (
-              <button onClick={() => setSearchQuery("")} style={{ color: "var(--color-text-muted)" }}>
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            {/* Back button on narrow screens */}
+            <button
+                onClick={() => navigate("/")}
+                className="md:hidden w-8 h-8 flex items-center justify-center rounded-full"
+                style={{ color: "var(--color-text-muted)" }}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+
+            {/* Avatar + name — clickable to open panel */}
+            <button
+                onClick={handleHeaderClick}
+                className="flex items-center gap-3 flex-1 min-w-0 text-left"
+            >
+              <div className="relative shrink-0">
+                {conversation.avatarPath ? (
+                    <img src={conversation.avatarPath} alt={conversation.name} className="w-10 h-10 rounded-full object-cover" />
+                ) : (
+                    <div
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm"
+                        style={{
+                          backgroundColor: `hsl(${conversation.name.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 360}, 55%, 45%)`,
+                        }}
+                    >
+                      {conversation.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
+                    </div>
+                )}
+                {presenceStatus && presenceStatus !== "offline" && (
+                    <span
+                        className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2"
+                        style={{ backgroundColor: presenceColors[presenceStatus], borderColor: "var(--color-header-bg)" }}
+                    />
+                )}
+              </div>
+
+              {/* Name & status */}
+              <div className="flex-1 min-w-0">
+                <h2 className="font-semibold text-sm truncate" style={{ color: "var(--color-text-primary)" }}>
+                  {conversation.name}
+                </h2>
+                {isGroup ? (
+                    <p className="text-xs truncate" style={{ color: "var(--color-text-muted)" }}>
+                      {conversation.participants.length} participants
+                      {otherParticipants.filter((p) => p.presenceStatus === "online").length > 0 && (
+                          <> · {otherParticipants.filter((p) => p.presenceStatus === "online").length} en ligne</>
+                      )}
+                    </p>
+                ) : (
+                    presenceStatus && (
+                        <p className="text-xs" style={{ color: presenceColors[presenceStatus] }}>
+                          {presenceLabels[presenceStatus]}
+                        </p>
+                    )
+                )}
+              </div>
+            </button>
+
+            {/* Actions */}
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                  onClick={() => setSearchOpen((v) => !v)}
+                  className="w-9 h-9 flex items-center justify-center rounded-full transition-colors"
+                  style={{ color: searchOpen ? "var(--color-primary-500)" : "var(--color-text-muted)" }}
+                  title="Rechercher"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
               </button>
-            )}
+              {/* Info panel toggle */}
+              <button
+                  onClick={handleHeaderClick}
+                  className="w-9 h-9 flex items-center justify-center rounded-full transition-colors"
+                  style={{ color: showPanel ? "var(--color-primary-500)" : "var(--color-text-muted)" }}
+                  title={isGroup ? "Infos groupe" : "Profil"}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </button>
+            </div>
           </div>
-          {searchQuery && (
-            <p className="text-xs mt-1" style={{ color: "var(--color-text-muted)" }}>
-              {filteredMessages.length} résultat{filteredMessages.length !== 1 ? "s" : ""}
-            </p>
-          )}
-        </div>
-      )}
 
-      {/* ── Messages area ───────────────────────────────────────── */}
-      <div
-        ref={scrollRef}
-        className="chat-bg flex-1 overflow-y-auto py-2"
-        onScroll={handleScroll}
-      >
-        {/* Load more indicator */}
-        {hasMoreMessages[convId] && (
-          <div className="flex justify-center py-3">
-            {isLoadingMessages ? (
-              <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24" style={{ color: "var(--color-primary-500)" }}>
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-            ) : (
-              <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+          {/* ── Search bar ──────────────────────────────────────────── */}
+          {searchOpen && (
+              <div
+                  className="px-4 py-2 shrink-0 border-b"
+                  style={{ backgroundColor: "var(--color-surface-secondary)", borderColor: "var(--color-border)" }}
+              >
+                <div
+                    className="flex items-center gap-2 rounded-lg px-3 py-2"
+                    style={{ backgroundColor: "var(--color-surface)" }}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "var(--color-text-muted)" }}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  <input
+                      autoFocus
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Rechercher dans les messages…"
+                      className="flex-1 bg-transparent text-sm outline-none"
+                      style={{ color: "var(--color-text-primary)" }}
+                  />
+                  {searchQuery && (
+                      <button onClick={() => setSearchQuery("")} style={{ color: "var(--color-text-muted)" }}>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                  )}
+                </div>
+                {searchQuery && (
+                    <p className="text-xs mt-1" style={{ color: "var(--color-text-muted)" }}>
+                      {filteredMessages.length} résultat{filteredMessages.length !== 1 ? "s" : ""}
+                    </p>
+                )}
+              </div>
+          )}
+
+          {/* ── Messages area ───────────────────────────────────────── */}
+          <div
+              ref={scrollRef}
+              className="chat-bg flex-1 overflow-y-auto py-2"
+              onScroll={handleScroll}
+          >
+            {/* Load more indicator */}
+            {hasMoreMessages[convId] && (
+                <div className="flex justify-center py-3">
+                  {isLoadingMessages ? (
+                      <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24" style={{ color: "var(--color-primary-500)" }}>
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                  ) : (
+                      <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
                 Défiler pour charger plus
               </span>
+                  )}
+                </div>
             )}
-          </div>
-        )}
 
-        {isLoadingMessages && messages.length === 0 ? (
-          <div className="flex justify-center py-8">
-            <svg className="animate-spin w-6 h-6" fill="none" viewBox="0 0 24 24" style={{ color: "var(--color-primary-500)" }}>
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-          </div>
-        ) : filteredMessages.length === 0 && searchQuery ? (
-          <div className="flex flex-col items-center justify-center py-16 gap-2">
-            <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>Aucun message trouvé</p>
-          </div>
-        ) : (
-          filteredMessages.map((msg, i) => {
-            const showDate = shouldShowDateSeparator(filteredMessages[i - 1] ?? null, msg);
-            const showName = isGroup && shouldShowSenderName(filteredMessages, i);
-            const isHighlighted = highlightedMessageId === msg.id;
-            return (
-              <div
-                key={msg.id}
-                id={`message-${msg.id}`}
-                style={{
-                  transition: "background-color 0.4s ease",
-                  backgroundColor: isHighlighted ? "var(--color-primary-500)" + "22" : "transparent",
-                  borderRadius: isHighlighted ? 8 : 0,
-                }}
-              >
-                {showDate && (
-                  <DateSeparator label={formatDateSeparator(msg.createdAt)} />
-                )}
-                <MessageBubble
-                  message={msg}
-                  showSenderName={showName}
-                  onReply={setReplyTo}
-                  onOpenPreview={setPreviewAttachment}
-                />
-              </div>
-            );
-          })
-        )}
+            {isLoadingMessages && messages.length === 0 ? (
+                <div className="flex justify-center py-8">
+                  <svg className="animate-spin w-6 h-6" fill="none" viewBox="0 0 24 24" style={{ color: "var(--color-primary-500)" }}>
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                </div>
+            ) : filteredMessages.length === 0 && searchQuery ? (
+                <div className="flex flex-col items-center justify-center py-16 gap-2">
+                  <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>Aucun message trouvé</p>
+                </div>
+            ) : (
+                filteredMessages.map((msg, i) => {
+                  const showDate = shouldShowDateSeparator(filteredMessages[i - 1] ?? null, msg);
+                  const showName = isGroup && shouldShowSenderName(filteredMessages, i);
+                  const isHighlighted = highlightedMessageId === msg.id;
+                  return (
+                      <div
+                          key={msg.id}
+                          id={`message-${msg.id}`}
+                          style={{
+                            transition: "background-color 0.4s ease",
+                            backgroundColor: isHighlighted ? "var(--color-primary-500)" + "22" : "transparent",
+                            borderRadius: isHighlighted ? 8 : 0,
+                          }}
+                      >
+                        {showDate && (
+                            <DateSeparator label={formatDateSeparator(msg.createdAt)} />
+                        )}
+                        <MessageBubble
+                            message={msg}
+                            showSenderName={showName}
+                            onReply={setReplyTo}
+                            onEdit={handleEditMessage}
+                            onDelete={handleDeleteMessage}
+                            onOpenPreview={setPreviewAttachment}
+                        />
+                      </div>
+                  );
+                })
+            )}
 
-        {/* Typing indicator */}
-        {typingUsers.length > 0 && (
-          <div className="flex items-center gap-2 px-4 py-2">
-            <div className="flex gap-1 items-center px-3 py-2 rounded-2xl shadow-sm" style={{ backgroundColor: "var(--color-surface)" }}>
+            {/* Typing indicator */}
+            {typingUsers.length > 0 && (
+                <div className="flex items-center gap-2 px-4 py-2">
+                  <div className="flex gap-1 items-center px-3 py-2 rounded-2xl shadow-sm" style={{ backgroundColor: "var(--color-surface)" }}>
               <span className="text-xs mr-1" style={{ color: "var(--color-text-muted)" }}>
                 {typingUsers.map((u) => u.displayName).join(", ")}
               </span>
-              <span className="flex gap-0.5">
+                    <span className="flex gap-0.5">
                 {[0, 1, 2].map((i) => (
-                  <span
-                    key={i}
-                    className="w-1.5 h-1.5 rounded-full animate-bounce"
-                    style={{
-                      backgroundColor: "var(--color-primary-500)",
-                      animationDelay: `${i * 0.15}s`,
-                    }}
-                  />
+                    <span
+                        key={i}
+                        className="w-1.5 h-1.5 rounded-full animate-bounce"
+                        style={{
+                          backgroundColor: "var(--color-primary-500)",
+                          animationDelay: `${i * 0.15}s`,
+                        }}
+                    />
                 ))}
               </span>
-            </div>
+                  </div>
+                </div>
+            )}
+
+            <div ref={bottomRef} />
           </div>
+
+          {/* ── Scroll-to-bottom fab ────────────────────────────────── */}
+          {!scrolledToBottom && (
+              <button
+                  onClick={() => bottomRef.current?.scrollIntoView({ behavior: "smooth" })}
+                  className="absolute bottom-20 right-6 w-10 h-10 rounded-full shadow-lg flex items-center justify-center transition-all"
+                  style={{ backgroundColor: "var(--color-surface)", color: "var(--color-primary-500)", border: "1px solid var(--color-border)", zIndex: 10 }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+          )}
+
+          {/* ── Input ───────────────────────────────────────────────── */}
+          <MessageInput
+              onSend={handleSend}
+              onSendFile={handleSendFile}
+              onTyping={handleTyping}
+              replyTo={replyTo}
+              onCancelReply={() => setReplyTo(null)}
+              editingMessage={editingMessage}
+              onCancelEdit={() => setEditingMessage(null)}
+          />
+        </div>{/* end main chat column */}
+
+        {/* ── Side panels ─────────────────────────────────────────── */}
+        {showPanel === "group" && (
+            <GroupDetailsPanel
+                conversation={conversation}
+                onClose={() => setShowPanel(null)}
+            />
+        )}
+        {showPanel === "user" && otherParticipants[0] && (
+            <UserProfilePanel
+                participant={otherParticipants[0]}
+                conversationId={convId}
+                onClose={() => setShowPanel(null)}
+                onSendMessage={() => setShowPanel(null)}
+            />
         )}
 
-        <div ref={bottomRef} />
+        {previewAttachment && (
+            <FilePreviewModal
+                attachment={previewAttachment}
+                onClose={() => setPreviewAttachment(null)}
+            />
+        )}
       </div>
-
-      {/* ── Scroll-to-bottom fab ────────────────────────────────── */}
-      {!scrolledToBottom && (
-        <button
-          onClick={() => bottomRef.current?.scrollIntoView({ behavior: "smooth" })}
-          className="absolute bottom-20 right-6 w-10 h-10 rounded-full shadow-lg flex items-center justify-center transition-all"
-          style={{ backgroundColor: "var(--color-surface)", color: "var(--color-primary-500)", border: "1px solid var(--color-border)", zIndex: 10 }}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-      )}
-
-      {/* ── Input ───────────────────────────────────────────────── */}
-      <MessageInput
-        onSend={handleSend}
-        onSendFile={handleSendFile}
-        onTyping={handleTyping}
-        replyTo={replyTo}
-        onCancelReply={() => setReplyTo(null)}
-      />
-      </div>{/* end main chat column */}
-
-      {/* ── Side panels ─────────────────────────────────────────── */}
-      {showPanel === "group" && (
-        <GroupDetailsPanel
-          conversation={conversation}
-          onClose={() => setShowPanel(null)}
-        />
-      )}
-      {showPanel === "user" && otherParticipants[0] && (
-        <UserProfilePanel
-          participant={otherParticipants[0]}
-          conversationId={convId}
-          onClose={() => setShowPanel(null)}
-          onSendMessage={() => setShowPanel(null)}
-        />
-      )}
-
-      {previewAttachment && (
-        <FilePreviewModal
-          attachment={previewAttachment}
-          onClose={() => setPreviewAttachment(null)}
-        />
-      )}
-    </div>
   );
 }

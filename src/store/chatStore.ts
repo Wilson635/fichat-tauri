@@ -32,6 +32,8 @@ interface ChatState {
   connectWs: () => void;
   disconnectWs: () => void;
   handleWsEvent: (event: import("@/services/wsService").WsEvent) => void;
+  editMessage: (conversationId: number, messageId: number, newContent: string) => Promise<void>;
+  deleteMessage: (conversationId: number, messageId: number) => Promise<void>;
   addGroupMember: (conversationId: number, userId: number) => Promise<void>;
   removeGroupMember: (conversationId: number, userId: number) => Promise<void>;
   updateGroupMemberRole: (conversationId: number, userId: number, role: "admin" | "member") => Promise<void>;
@@ -139,9 +141,9 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         [conversationId]: [...(s.messagesMap[conversationId] ?? []), tempMsg],
       },
       conversations: s.conversations.map((c) =>
-        c.id === conversationId
-          ? { ...c, lastMessage: content, lastMessageAt: new Date().toISOString() }
-          : c
+          c.id === conversationId
+              ? { ...c, lastMessage: content, lastMessageAt: new Date().toISOString() }
+              : c
       ),
     }));
 
@@ -153,7 +155,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         messagesMap: {
           ...s.messagesMap,
           [conversationId]: (s.messagesMap[conversationId] ?? []).map((m) =>
-            m.id === tempId ? sent : m
+              m.id === tempId ? sent : m
           ),
         },
       }));
@@ -184,11 +186,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             }, 500);
 
             wsService.simulateResponse(
-              conversationId,
-              other.userId,
-              other.displayName,
-              replyContent,
-              delay
+                conversationId,
+                other.userId,
+                other.displayName,
+                replyContent,
+                delay
             );
           }
         }
@@ -200,7 +202,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         messagesMap: {
           ...s.messagesMap,
           [conversationId]: (s.messagesMap[conversationId] ?? []).map((m) =>
-            m.id === tempId ? { ...m, status: "sent" as const } : m
+              m.id === tempId ? { ...m, status: "sent" as const } : m
           ),
         },
       }));
@@ -244,9 +246,9 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         [conversationId]: [...(s.messagesMap[conversationId] ?? []), tempMsg],
       },
       conversations: s.conversations.map((c) =>
-        c.id === conversationId
-          ? { ...c, lastMessage: content || `📎 ${file.name}`, lastMessageAt: new Date().toISOString() }
-          : c
+          c.id === conversationId
+              ? { ...c, lastMessage: content || `📎 ${file.name}`, lastMessageAt: new Date().toISOString() }
+              : c
       ),
     }));
 
@@ -256,7 +258,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         messagesMap: {
           ...s.messagesMap,
           [conversationId]: (s.messagesMap[conversationId] ?? []).map((m) =>
-            m.id === tempId ? sent : m
+              m.id === tempId ? sent : m
           ),
         },
       }));
@@ -266,7 +268,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         messagesMap: {
           ...s.messagesMap,
           [conversationId]: (s.messagesMap[conversationId] ?? []).map((m) =>
-            m.id === tempId ? { ...m, status: "sent" as const } : m
+              m.id === tempId ? { ...m, status: "sent" as const } : m
           ),
         },
       }));
@@ -278,7 +280,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     const currentUserId = useAuthStore.getState().user?.id ?? 1;
     set((s) => ({
       conversations: s.conversations.map((c) =>
-        c.id === conversationId ? { ...c, unreadCount: 0 } : c
+          c.id === conversationId ? { ...c, unreadCount: 0 } : c
       ),
     }));
     await chatService.markAsRead(conversationId);
@@ -288,11 +290,47 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         messagesMap: {
           ...s.messagesMap,
           [conversationId]: msgs.map((m) =>
-            m.senderId !== currentUserId ? { ...m, status: "read" as const } : m
+              m.senderId !== currentUserId ? { ...m, status: "read" as const } : m
           ),
         },
       };
     });
+  },
+
+  // ── Edit message ──────────────────────────────────────────────────────────
+  editMessage: async (conversationId: number, messageId: number, newContent: string) => {
+    // Optimistic update
+    set((s) => ({
+      messagesMap: {
+        ...s.messagesMap,
+        [conversationId]: (s.messagesMap[conversationId] ?? []).map((m) =>
+            m.id === messageId ? { ...m, content: newContent, isEdited: true } : m
+        ),
+      },
+    }));
+    try {
+      await chatService.editMessage(conversationId, messageId, newContent);
+    } catch (e) {
+      console.error("editMessage error:", e);
+    }
+  },
+
+  // ── Delete message ────────────────────────────────────────────────────────
+  deleteMessage: async (conversationId: number, messageId: number) => {
+    // Optimistic update
+    set((s) => ({
+      messagesMap: {
+        ...s.messagesMap,
+        [conversationId]: (s.messagesMap[conversationId] ?? []).map((m) =>
+            m.id === messageId ? { ...m, isDeleted: true, content: null, attachments: [] } : m
+        ),
+      },
+    }));
+    try {
+      await chatService.deleteMessage(conversationId, messageId);
+    } catch (e) {
+      console.error("deleteMessage error:", e);
+    }
   },
 
   // ── Group member management ───────────────────────────────────────────────
@@ -316,7 +354,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         return {
           ...conv,
           participants: conv.participants.map((p) =>
-            p.userId === userId ? { ...p, role } : p
+              p.userId === userId ? { ...p, role } : p
           ),
         };
       }),
@@ -459,7 +497,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
               typingMap: {
                 ...s.typingMap,
                 [conversation_id]: (s.typingMap[conversation_id] ?? []).filter(
-                  (u) => u.userId !== user_id
+                    (u) => u.userId !== user_id
                 ),
               },
             }));
@@ -470,7 +508,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             typingMap: {
               ...s.typingMap,
               [conversation_id]: (s.typingMap[conversation_id] ?? []).filter(
-                (u) => u.userId !== user_id
+                  (u) => u.userId !== user_id
               ),
             },
           }));
@@ -484,7 +522,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           conversations: s.conversations.map((conv) => ({
             ...conv,
             participants: conv.participants.map((p) =>
-              p.userId === user_id ? { ...p, presenceStatus: status as any } : p
+                p.userId === user_id ? { ...p, presenceStatus: status as any } : p
             ),
           })),
         }));

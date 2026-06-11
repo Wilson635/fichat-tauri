@@ -1610,6 +1610,78 @@ pub async fn cmd_get_conversation_media(
     Ok(items)
 }
 
+
+#[tauri::command]
+pub async fn cmd_edit_message(
+    state: State<'_, SharedState>,
+    token: String,
+    conversation_id: i32,
+    message_id: i32,
+    new_content: String,
+) -> Result<(), String> {
+    let s = state.lock().await;
+    let pool = s.db_pool.as_ref().ok_or("Database pool non disponible")?;
+
+    // Extraction de l'ID utilisateur à partir du JWT pour sécuriser l'édition
+    let uid = extract_uid(&token, &s.jwt_secret)?;
+
+    // Utilisation de la macro dynamique sqlx::query sans '!'
+    let rows_affected = sqlx::query(
+        r#"
+        UPDATE messages
+        SET content = $1, is_edited = true, updated_at = NOW()
+        WHERE id = $2 AND conversation_id = $3 AND sender_id = $4
+        "#,
+    )
+        .bind(new_content)      // $1
+        .bind(message_id)       // $2
+        .bind(conversation_id)  // $3
+        .bind(uid)              // $4
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Erreur DB lors de la modification : {e}"))?
+        .rows_affected();
+
+    if rows_affected == 0 {
+        return Err("Message introuvable ou vous n'êtes pas l'auteur".to_string());
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cmd_delete_message(
+    state: State<'_, SharedState>,
+    token: String,
+    conversation_id: i32,
+    message_id: i32,
+) -> Result<(), String> {
+    let s = state.lock().await;
+    let pool = s.db_pool.as_ref().ok_or("Database pool non disponible")?;
+    let uid = extract_uid(&token, &s.jwt_secret)?;
+
+    // Soft delete (recommandé pour conserver l'historique et la cohérence de l'UI)
+    let rows_affected = sqlx::query(
+        r#"
+    UPDATE messages
+    SET is_deleted = true, updated_at = NOW()
+    WHERE id = $1 AND conversation_id = $2 AND sender_id = $3
+    "#,
+    )
+        .bind(message_id)
+        .bind(conversation_id)
+        .bind(uid)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Erreur DB lors de la suppression : {e}"))?
+        .rows_affected();
+
+    if rows_affected == 0 {
+        return Err("Message introuvable ou vous n'êtes pas l'auteur".to_string());
+    }
+
+    Ok(())
+}
 // ─── GET WS PORT ──────────────────────────────────────────────────────────────
 
 #[tauri::command]
