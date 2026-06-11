@@ -7,7 +7,8 @@ import { MessageBubble, DateSeparator, formatDateSeparator } from "@/components/
 import { MessageInput } from "@/components/MessageInput";
 import { GroupDetailsPanel } from "@/components/GroupDetailsPanel";
 import { UserProfilePanel } from "@/components/UserProfilePanel";
-import type { MessageDto } from "@/services/chatService";
+import { FilePreviewModal } from "@/components/FilePreviewModal";
+import type { MessageDto, AttachmentDto } from "@/services/chatService";
 import { isSameDay } from "date-fns";
 
 function shouldShowDateSeparator(prev: MessageDto | null, curr: MessageDto): boolean {
@@ -40,6 +41,7 @@ export function ChatPage() {
     loadMessages,
     loadMoreMessages,
     sendMessage,
+    sendFileMessage,
     markAsRead,
     setCurrentConversation,
   } = useChatStore();
@@ -59,6 +61,7 @@ export function ChatPage() {
   const [scrolledToBottom, setScrolledToBottom] = useState(true);
   const [showPanel, setShowPanel] = useState<"group" | "user" | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
+  const [previewAttachment, setPreviewAttachment] = useState<AttachmentDto | null>(null);
   const isInitialLoad = useRef(true);
 
   // Load messages on mount / conversation change
@@ -172,7 +175,15 @@ export function ChatPage() {
     (content: string, replyToId?: number) => {
       sendMessage(convId, content, replyToId);
     },
-    [convId, sendMessage]
+    [convId, sendMessage],
+  );
+
+  const handleSendFile = useCallback(
+    (file: File, thumbnail: string | null, dataUrl: string, caption: string, replyToId?: number) => {
+      sendFileMessage(convId, caption, file, thumbnail, dataUrl, replyToId);
+      setReplyTo(null);
+    },
+    [convId, sendFileMessage],
   );
 
   const filteredMessages = searchQuery.trim()
@@ -402,6 +413,7 @@ export function ChatPage() {
                   message={msg}
                   showSenderName={showName}
                   onReply={setReplyTo}
+                  onOpenPreview={setPreviewAttachment}
                 />
               </div>
             );
@@ -450,6 +462,7 @@ export function ChatPage() {
       {/* ── Input ───────────────────────────────────────────────── */}
       <MessageInput
         onSend={handleSend}
+        onSendFile={handleSendFile}
         onTyping={handleTyping}
         replyTo={replyTo}
         onCancelReply={() => setReplyTo(null)}
@@ -469,6 +482,13 @@ export function ChatPage() {
           conversationId={convId}
           onClose={() => setShowPanel(null)}
           onSendMessage={() => setShowPanel(null)}
+        />
+      )}
+
+      {previewAttachment && (
+        <FilePreviewModal
+          attachment={previewAttachment}
+          onClose={() => setPreviewAttachment(null)}
         />
       )}
     </div>

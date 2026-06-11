@@ -4,6 +4,7 @@ use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tauri::State;
+use tauri::Manager;
 
 // ─── JWT ─────────────────────────────────────────────────────────────────────
 
@@ -43,6 +44,7 @@ pub struct ConversationSummary {
     pub last_message_at: Option<DateTime<Utc>>,
     pub unread_count: i64,
     pub participants: Vec<ParticipantInfo>,
+    pub created_by_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -126,6 +128,12 @@ pub async fn cmd_get_conversations(
                     LIMIT 1
                 )
             END                                                           AS avatar_path,
+            CASE
+                WHEN c.type = 'group' THEN (
+                    SELECT u3.display_name FROM users u3 WHERE u3.id = g.created_by
+                )
+                ELSE NULL
+            END                                                           AS created_by_name,
             (
                 SELECT LEFT(m.content, 100)
                 FROM messages m
@@ -231,6 +239,7 @@ pub async fn cmd_get_conversations(
             last_message_at,
             unread_count,
             participants,
+            created_by_name: row.try_get("created_by_name").ok().flatten(),
         });
     }
 
@@ -1314,6 +1323,291 @@ pub async fn cmd_upload_attachment(
     let id: i32 = row.try_get::<i32, _>("id").unwrap_or_default();
 
     Ok(AttachmentDto { id, file_name, file_path, file_type, file_size, thumbnail })
+}
+
+// ─── ATTACHMENT WITH MESSAGE INFO ─────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct AttachmentWithInfo {
+    pub id: i32,
+    pub message_id: i32,
+    pub file_name: String,
+    pub file_path: String,
+    pub file_type: Option<String>,
+    pub file_size: Option<i64>,
+    pub thumbnail: Option<String>,
+    pub sender_name: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+// ─── SEND MESSAGE WITH FILE ────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn cmd_send_message_with_file(
+    token: String,
+    conversation_id: i32,
+    content: String,
+    file_name: String,
+    base64_data: String,
+    thumbnail: Option<String>,
+    file_type: String,
+    file_size: i64,
+    reply_to_id: Option<i32>,
+    state: State<'_, SharedState>,
+    app_handle: tauri::AppHandle,
+) -> Result<MessageDto, String> {
+    let (pool, jwt_secret, hub) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+            s.ws_hub.clone(),
+        )
+    };
+    let uid = extract_uid(&token, &jwt_secret)?;
+
+    tracing::info!("cmd_send_message_with_file: uid={} conv={} file={}", uid, conversation_id, file_name);
+
+    // Verify participant
+    let is_member: bool = sqlx::query_as::<_, (bool,)>(
+        "SELECT EXISTS(SELECT 1 FROM conversation_participants WHERE conversation_id=$1 AND user_id=$2)",
+    )
+    .bind(conversation_id)
+    .bind(uid)
+    .fetch_one(&pool)
+    .await
+    .map(|(b,)| b)
+    .unwrap_or(false);
+
+    if !is_member {
+        return Err("Accès refusé à cette conversation".to_string());
+    }
+
+    // ── Save file to disk ──────────────────────────────────────────────────────
+    let attachments_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Répertoire données inaccessible: {e}"))?
+        .join("attachments");
+
+    std::fs::create_dir_all(&attachments_dir)
+        .map_err(|e| format!("Erreur création répertoire: {e}"))?;
+
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&base64_data)
+        .map_err(|e| format!("Erreur décodage base64: {e}"))?;
+
+    // Sanitize filename
+    let safe_name: String = file_name
+        .chars()
+        .map(|c| if "/\\:*?\"<>|".contains(c) { '_' } else { c })
+        .collect();
+    let unique_name = format!("{}_{}", uuid::Uuid::new_v4().as_simple(), safe_name);
+    let file_path = attachments_dir.join(&unique_name);
+    std::fs::write(&file_path, &bytes)
+        .map_err(|e| format!("Erreur sauvegarde fichier: {e}"))?;
+    let file_path_str = file_path.to_string_lossy().to_string();
+
+    tracing::info!("cmd_send_message_with_file: fichier sauvegardé → {}", file_path_str);
+
+    // ── Insert message ─────────────────────────────────────────────────────────
+    let msg_type = if file_type.starts_with("image/") { "image" } else { "file" };
+    let row = sqlx::query(
+        "INSERT INTO messages (conversation_id, sender_id, content, message_type, reply_to_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at",
+    )
+    .bind(conversation_id)
+    .bind(uid)
+    .bind(if content.is_empty() { None } else { Some(content.as_str()) })
+    .bind(msg_type)
+    .bind(reply_to_id)
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| { tracing::error!("cmd_send_message_with_file INSERT message: {}", e); format!("Erreur insertion message: {e}") })?;
+
+    let msg_id: i32 = row.try_get::<i32, _>("id").map_err(|e| format!("Erreur lecture id: {e}"))?;
+    let created_at: DateTime<Utc> = row.try_get("created_at").unwrap_or_else(|_| Utc::now());
+
+    // ── Insert attachment ──────────────────────────────────────────────────────
+    let att_row = sqlx::query(
+        "INSERT INTO attachments (message_id, file_name, file_path, file_type, file_size, thumbnail) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+    )
+    .bind(msg_id)
+    .bind(&file_name)
+    .bind(&file_path_str)
+    .bind(&file_type)
+    .bind(file_size)
+    .bind(&thumbnail)
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| { tracing::error!("cmd_send_message_with_file INSERT attachment: {}", e); format!("Erreur insertion pièce jointe: {e}") })?;
+
+    let att_id: i32 = att_row.try_get::<i32, _>("id").unwrap_or_default();
+
+    // ── Message status ─────────────────────────────────────────────────────────
+    sqlx::query(
+        "INSERT INTO message_status (message_id, user_id, status) VALUES ($1, $2, 'sent') ON CONFLICT DO NOTHING",
+    )
+    .bind(msg_id)
+    .bind(uid)
+    .execute(&pool)
+    .await
+    .ok();
+
+    // ── Sender info ────────────────────────────────────────────────────────────
+    let (sender_name, sender_avatar): (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT display_name, avatar_path FROM users WHERE id = $1",
+    )
+    .bind(uid)
+    .fetch_optional(&pool)
+    .await
+    .unwrap_or(None)
+    .map(|(n, a)| (Some(n), a))
+    .unwrap_or((None, None));
+
+    let att_dto = AttachmentDto {
+        id: att_id,
+        file_name: file_name.clone(),
+        file_path: file_path_str,
+        file_type: Some(file_type.clone()),
+        file_size: Some(file_size),
+        thumbnail,
+    };
+
+    let dto = MessageDto {
+        id: msg_id,
+        conversation_id,
+        sender_id: Some(uid),
+        sender_name: sender_name.clone(),
+        sender_avatar: sender_avatar.clone(),
+        content: if content.is_empty() { None } else { Some(content) },
+        message_type: msg_type.to_string(),
+        reply_to_id,
+        reply_to_content: None,
+        is_edited: false,
+        is_deleted: false,
+        created_at,
+        status: "sent".into(),
+        attachments: vec![att_dto],
+    };
+
+    // ── WS broadcast ───────────────────────────────────────────────────────────
+    if let Some(hub) = hub {
+        let participant_ids: Vec<(i32,)> = sqlx::query_as(
+            "SELECT user_id FROM conversation_participants WHERE conversation_id = $1",
+        )
+        .bind(conversation_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
+
+        let user_ids: Vec<i64> = participant_ids.into_iter().map(|(id,)| id as i64).collect();
+        let event = ws::ServerEvent::NewMessage {
+            conversation_id: conversation_id as i64,
+            message: serde_json::to_value(&dto).unwrap_or_default(),
+        };
+        hub.broadcast_to_users(&user_ids, &event).await;
+    }
+
+    tracing::info!("cmd_send_message_with_file: message id={} avec pièce jointe id={}", msg_id, att_id);
+    Ok(dto)
+}
+
+// ─── GET FILE AS BASE64 ────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn cmd_get_file_as_base64(
+    token: String,
+    file_path: String,
+    state: State<'_, SharedState>,
+) -> Result<String, String> {
+    let (_pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    extract_uid(&token, &jwt_secret)?;
+
+    tracing::debug!("cmd_get_file_as_base64: {}", file_path);
+
+    let bytes = std::fs::read(&file_path)
+        .map_err(|e| format!("Fichier introuvable: {e}"))?;
+
+    use base64::Engine;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+}
+
+// ─── GET CONVERSATION MEDIA ────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn cmd_get_conversation_media(
+    token: String,
+    conversation_id: i32,
+    state: State<'_, SharedState>,
+) -> Result<Vec<AttachmentWithInfo>, String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    let uid = extract_uid(&token, &jwt_secret)?;
+
+    // Verify participant
+    let is_member: bool = sqlx::query_as::<_, (bool,)>(
+        "SELECT EXISTS(SELECT 1 FROM conversation_participants WHERE conversation_id=$1 AND user_id=$2)",
+    )
+    .bind(conversation_id)
+    .bind(uid)
+    .fetch_one(&pool)
+    .await
+    .map(|(b,)| b)
+    .unwrap_or(false);
+
+    if !is_member {
+        return Err("Accès refusé".to_string());
+    }
+
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            a.id, a.message_id, a.file_name, a.file_path,
+            a.file_type, a.file_size, a.thumbnail,
+            u.display_name AS sender_name,
+            m.created_at
+        FROM attachments a
+        JOIN messages m ON m.id = a.message_id
+        LEFT JOIN users u ON u.id = m.sender_id
+        WHERE m.conversation_id = $1
+          AND m.is_deleted = false
+        ORDER BY m.created_at DESC
+        LIMIT 200
+        "#,
+    )
+    .bind(conversation_id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("Erreur DB: {e}"))?;
+
+    let items = rows
+        .iter()
+        .map(|row| AttachmentWithInfo {
+            id: row.try_get::<i32, _>("id").unwrap_or_default(),
+            message_id: row.try_get::<i32, _>("message_id").unwrap_or_default(),
+            file_name: row.try_get("file_name").unwrap_or_default(),
+            file_path: row.try_get("file_path").unwrap_or_default(),
+            file_type: row.try_get("file_type").ok().flatten(),
+            file_size: row.try_get("file_size").ok().flatten(),
+            thumbnail: row.try_get("thumbnail").ok().flatten(),
+            sender_name: row.try_get("sender_name").ok().flatten(),
+            created_at: row.try_get("created_at").unwrap_or_else(|_| Utc::now()),
+        })
+        .collect();
+
+    Ok(items)
 }
 
 // ─── GET WS PORT ──────────────────────────────────────────────────────────────

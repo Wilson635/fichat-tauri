@@ -25,6 +25,7 @@ interface ChatState {
   loadMessages: (conversationId: number) => Promise<void>;
   loadMoreMessages: (conversationId: number) => Promise<void>;
   sendMessage: (conversationId: number, content: string, replyToId?: number) => Promise<void>;
+  sendFileMessage: (conversationId: number, content: string, file: File, thumbnail: string | null, dataUrl: string, replyToId?: number) => Promise<void>;
   markAsRead: (conversationId: number) => Promise<void>;
   setCurrentConversation: (id: number | null) => void;
   setSearchQuery: (q: string) => void;
@@ -195,6 +196,72 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     } catch (e) {
       console.error("sendMessage error:", e);
       // Mark temp message as failed
+      set((s) => ({
+        messagesMap: {
+          ...s.messagesMap,
+          [conversationId]: (s.messagesMap[conversationId] ?? []).map((m) =>
+            m.id === tempId ? { ...m, status: "sent" as const } : m
+          ),
+        },
+      }));
+    }
+  },
+
+  // ── Send file message ────────────────────────────────────────────────────
+  sendFileMessage: async (conversationId, content, file, thumbnail, dataUrl, replyToId) => {
+    const currentUserId = useAuthStore.getState().user?.id ?? 1;
+    const tempId = -Date.now();
+
+    const tempAtt = {
+      id: tempId,
+      fileName: file.name,
+      filePath: dataUrl,
+      fileType: file.type || null,
+      fileSize: file.size,
+      thumbnail: thumbnail ?? (file.type.startsWith("image/") ? dataUrl : null),
+    };
+    const msgType = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "file";
+    const tempMsg: MessageDto = {
+      id: tempId,
+      conversationId,
+      senderId: currentUserId,
+      senderName: useAuthStore.getState().user?.displayName ?? "Moi",
+      senderAvatar: null,
+      content: content || null,
+      messageType: msgType as any,
+      replyToId: replyToId ?? null,
+      replyToContent: null,
+      isEdited: false,
+      isDeleted: false,
+      createdAt: new Date().toISOString(),
+      status: "sending",
+      attachments: [tempAtt],
+    };
+
+    set((s) => ({
+      messagesMap: {
+        ...s.messagesMap,
+        [conversationId]: [...(s.messagesMap[conversationId] ?? []), tempMsg],
+      },
+      conversations: s.conversations.map((c) =>
+        c.id === conversationId
+          ? { ...c, lastMessage: content || `📎 ${file.name}`, lastMessageAt: new Date().toISOString() }
+          : c
+      ),
+    }));
+
+    try {
+      const sent = await chatService.sendFileMessage(conversationId, content, file, thumbnail, dataUrl, replyToId);
+      set((s) => ({
+        messagesMap: {
+          ...s.messagesMap,
+          [conversationId]: (s.messagesMap[conversationId] ?? []).map((m) =>
+            m.id === tempId ? sent : m
+          ),
+        },
+      }));
+    } catch (e) {
+      console.error("sendFileMessage error:", e);
       set((s) => ({
         messagesMap: {
           ...s.messagesMap,

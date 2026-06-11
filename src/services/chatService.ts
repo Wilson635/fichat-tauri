@@ -32,6 +32,20 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
   return tauriInvoke<T>(cmd, args);
 }
 
+// ─── Media item type ─────────────────────────────────────────────────────────
+
+export interface MediaItem {
+  id: number;
+  messageId: number;
+  fileName: string;
+  filePath: string;
+  fileType: string | null;
+  fileSize: number | null;
+  thumbnail: string | null;
+  senderName: string | null;
+  createdAt: string;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface UserForChat {
@@ -61,6 +75,7 @@ export interface ConversationSummary {
   lastMessageAt: string | null;
   unreadCount: number;
   participants: ParticipantInfo[];
+  createdByName?: string | null;
 }
 
 export interface MessageSearchResult {
@@ -112,10 +127,11 @@ function mapConversation(raw: any): ConversationSummary {
       presenceStatus: p.presence_status ?? p.presenceStatus ?? "offline",
       role: (p.role ?? "member") as "admin" | "member",
     })),
+    createdByName: raw.created_by_name ?? raw.createdByName ?? null,
   };
 }
 
-function mapMessage(raw: any): MessageDto {
+export function mapMessage(raw: any): MessageDto {
   return {
     id: Number(raw.id),
     conversationId: Number(raw.conversation_id ?? raw.conversationId),
@@ -409,6 +425,124 @@ export const chatService = {
     }
     const token = useAuthStore.getState().token!;
     await invoke("cmd_update_member_role", { token, conversationId, userId, role });
+  },
+
+  // ── File message ─────────────────────────────────────────────────────────────
+
+  async sendFileMessage(
+    conversationId: number,
+    content: string,
+    file: File,
+    thumbnail: string | null,
+    dataUrl: string,
+    replyToId?: number,
+  ): Promise<MessageDto> {
+    if (!isTauri()) {
+      const uid = currentUid();
+      const att: AttachmentDto = {
+        id: nextId(),
+        fileName: file.name,
+        filePath: dataUrl,
+        fileType: file.type || null,
+        fileSize: file.size,
+        thumbnail: thumbnail ?? (file.type.startsWith("image/") ? dataUrl : null),
+      };
+      const msgType = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "file";
+      const msg: MessageDto = {
+        id: nextId(),
+        conversationId,
+        senderId: uid,
+        senderName: null,
+        senderAvatar: null,
+        content: content || null,
+        messageType: msgType as any,
+        replyToId: replyToId ?? null,
+        replyToContent: null,
+        isEdited: false,
+        isDeleted: false,
+        createdAt: new Date().toISOString(),
+        status: "sent",
+        attachments: [att],
+      };
+      dbAddMessage(uid, msg);
+      dbUpdateConversation(uid, conversationId, {
+        lastMessage: content || `📎 ${file.name}`,
+        lastMessageAt: msg.createdAt,
+      });
+      return msg;
+    }
+
+    const token = useAuthStore.getState().token!;
+    const { fileToBase64 } = await import("@/utils/fileUtils");
+    const base64Data = await fileToBase64(file);
+
+    const raw = await invoke<any>("cmd_send_message_with_file", {
+      token,
+      conversationId,
+      content,
+      fileName: file.name,
+      base64Data,
+      thumbnail: thumbnail ?? null,
+      fileType: file.type || "application/octet-stream",
+      fileSize: file.size,
+      replyToId: replyToId ?? null,
+    });
+    return mapMessage(raw);
+  },
+
+  // ── Media gallery ─────────────────────────────────────────────────────────────
+
+  async getConversationMedia(conversationId: number): Promise<MediaItem[]> {
+    if (!isTauri()) {
+      const uid = currentUid();
+      const msgs = dbGetMessages(uid, conversationId);
+      const items: MediaItem[] = [];
+      for (const msg of msgs) {
+        for (const att of msg.attachments ?? []) {
+          items.push({
+            id: att.id,
+            messageId: msg.id,
+            fileName: att.fileName,
+            filePath: att.filePath,
+            fileType: att.fileType,
+            fileSize: att.fileSize,
+            thumbnail: att.thumbnail,
+            senderName: msg.senderName,
+            createdAt: msg.createdAt,
+          });
+        }
+      }
+      return items.sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+    }
+    const token = useAuthStore.getState().token!;
+    const raw = await invoke<any[]>("cmd_get_conversation_media", { token, conversationId });
+    return raw.map((r) => ({
+      id: Number(r.id),
+      messageId: Number(r.message_id ?? r.messageId),
+      fileName: r.file_name ?? r.fileName,
+      filePath: r.file_path ?? r.filePath,
+      fileType: r.file_type ?? r.fileType ?? null,
+      fileSize: r.file_size != null ? Number(r.file_size ?? r.fileSize) : null,
+      thumbnail: r.thumbnail ?? null,
+      senderName: r.sender_name ?? r.senderName ?? null,
+      createdAt: r.created_at ?? r.createdAt ?? new Date().toISOString(),
+    }));
+  },
+
+  // ── Get raw file as base64 ────────────────────────────────────────────────────
+
+  async getFileAsBase64(filePath: string): Promise<string> {
+    if (!isTauri()) {
+      // In web mode, filePath is already a data URL — extract the base64 part
+      if (filePath.startsWith("data:")) {
+        return filePath.split(",")[1] ?? "";
+      }
+      return "";
+    }
+    const token = useAuthStore.getState().token!;
+    return invoke<string>("cmd_get_file_as_base64", { token, filePath });
   },
 
   // ── Mock-only helpers (web mode only — no-ops in Tauri) ──────────────────────
