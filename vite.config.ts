@@ -11,14 +11,14 @@ export default defineConfig(async () => ({
   },
   clearScreen: false,
   server: {
-    port: 5000,
+    port: 5080,
     strictPort: true,
     host: "0.0.0.0",
     allowedHosts: true,
     hmr: {
       protocol: "ws",
       host: "localhost",
-      port: 5001,
+      port: 5040,
     },
     watch: {
       ignored: ["**/src-tauri/**"],

@@ -8,7 +8,11 @@ import { NewGroupModal } from "@/components/NewGroupModal";
 import { NewDirectChatModal } from "@/components/NewDirectChatModal";
 import { NotificationCenter } from "@/components/NotificationCenter";
 
-export function Sidebar() {
+interface SidebarProps {
+  onOpenGlobalSearch?: () => void;
+}
+
+export function Sidebar({ onOpenGlobalSearch }: SidebarProps) {
   const { user } = useAuthStore();
   const { theme, setTheme } = useThemeStore();
   const { searchQuery, setSearchQuery } = useChatStore();
@@ -148,11 +152,29 @@ export function Sidebar() {
                 className="flex-1 bg-transparent text-sm outline-none"
                 style={{ color: "var(--color-text-primary)" }}
             />
-            {searchQuery && (
+            {searchQuery ? (
                 <button onClick={() => setSearchQuery("")}>
                   <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "var(--color-text-muted)" }}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                   </svg>
+                </button>
+            ) : (
+                <button
+                    onClick={onOpenGlobalSearch}
+                    title="Recherche globale (Ctrl+K)"
+                    className="flex items-center gap-1 shrink-0"
+                >
+                  <kbd
+                      className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-xs"
+                      style={{
+                        backgroundColor: "var(--color-surface-secondary)",
+                        color: "var(--color-text-muted)",
+                        border: "1px solid var(--color-border)",
+                        fontSize: 10,
+                      }}
+                  >
+                    Ctrl K
+                  </kbd>
                 </button>
             )}
           </div>

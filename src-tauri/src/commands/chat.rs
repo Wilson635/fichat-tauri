@@ -5,26 +5,37 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tauri::State;
 
-// ─── JWT helper ───────────────────────────────────────────────────────────────
+// ─── JWT ─────────────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
 struct Claims {
     user_id: i64,
 }
 
-fn extract_user_id(token: &str, secret: &str) -> Result<i64, String> {
+/// Decode the JWT and return the user_id as i32 (DB uses SERIAL = INTEGER).
+fn extract_uid(token: &str, secret: &str) -> Result<i32, String> {
     let key = DecodingKey::from_secret(secret.as_bytes());
-    let validation = Validation::new(Algorithm::HS256);
-    decode::<Claims>(token, &key, &validation)
+    let val = Validation::new(Algorithm::HS256);
+    let uid = decode::<Claims>(token, &key, &val)
         .map(|d| d.claims.user_id)
-        .map_err(|_| "Session expirée ou invalide".to_string())
+        .map_err(|_| "Session expirée ou invalide".to_string())?;
+    Ok(uid as i32)
 }
 
-// ─── DTOs ────────────────────────────────────────────────────────────────────
+// ─── DTOs ─────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Clone)]
+pub struct ParticipantInfo {
+    pub user_id: i32,
+    pub display_name: String,
+    pub avatar_path: Option<String>,
+    pub presence_status: String,
+    pub role: String, // "admin" | "member"
+}
 
 #[derive(Debug, Serialize)]
 pub struct ConversationSummary {
-    pub id: i64,
+    pub id: i32,
     pub conv_type: String,
     pub name: String,
     pub avatar_path: Option<String>,
@@ -35,34 +46,26 @@ pub struct ConversationSummary {
 }
 
 #[derive(Debug, Serialize, Clone)]
-pub struct ParticipantInfo {
-    pub user_id: i64,
-    pub display_name: String,
-    pub avatar_path: Option<String>,
-    pub presence_status: String,
-}
-
-#[derive(Debug, Serialize, Clone)]
 pub struct MessageDto {
-    pub id: i64,
-    pub conversation_id: i64,
-    pub sender_id: Option<i64>,
+    pub id: i32,
+    pub conversation_id: i32,
+    pub sender_id: Option<i32>,
     pub sender_name: Option<String>,
     pub sender_avatar: Option<String>,
     pub content: Option<String>,
     pub message_type: String,
-    pub reply_to_id: Option<i64>,
+    pub reply_to_id: Option<i32>,
     pub reply_to_content: Option<String>,
     pub is_edited: bool,
     pub is_deleted: bool,
     pub created_at: DateTime<Utc>,
-    pub status: String, // "sent" | "delivered" | "read"
+    pub status: String,
     pub attachments: Vec<AttachmentDto>,
 }
 
 #[derive(Debug, Serialize, Clone)]
 pub struct AttachmentDto {
-    pub id: i64,
+    pub id: i32,
     pub file_name: String,
     pub file_path: String,
     pub file_type: Option<String>,
@@ -70,10 +73,19 @@ pub struct AttachmentDto {
     pub thumbnail: Option<String>,
 }
 
-// ─── Commands ────────────────────────────────────────────────────────────────
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct UserForChat {
+    pub id: i32,
+    pub username: String,
+    pub display_name: String,
+    pub email: Option<String>,
+    pub department: Option<String>,
+    pub avatar_path: Option<String>,
+    pub presence_status: String,
+}
 
-/// Return all conversations the authenticated user participates in,
-/// sorted by last message time (most recent first).
+// ─── GET CONVERSATIONS ────────────────────────────────────────────────────────
+
 #[tauri::command]
 pub async fn cmd_get_conversations(
     token: String,
@@ -86,17 +98,14 @@ pub async fn cmd_get_conversations(
             s.jwt_secret.clone(),
         )
     };
+    let uid = extract_uid(&token, &jwt_secret)?;
+    tracing::info!("cmd_get_conversations: uid={}", uid);
 
-    let user_id = extract_user_id(&token, &jwt_secret)?;
-
-    // All conversations this user is in, with last message and unread count
     let rows = sqlx::query(
         r#"
         SELECT
-            c.id,
-            c.type                                                AS conv_type,
-            -- For group conversations use the group name;
-            -- for direct conversations use the other participant's display_name
+            c.id                                                          AS id,
+            c.type                                                        AS conv_type,
             CASE
                 WHEN c.type = 'group' THEN g.name
                 ELSE (
@@ -106,7 +115,7 @@ pub async fn cmd_get_conversations(
                     WHERE cp2.conversation_id = c.id AND cp2.user_id <> $1
                     LIMIT 1
                 )
-            END                                                   AS name,
+            END                                                           AS name,
             CASE
                 WHEN c.type = 'group' THEN g.avatar_path
                 ELSE (
@@ -116,23 +125,19 @@ pub async fn cmd_get_conversations(
                     WHERE cp2.conversation_id = c.id AND cp2.user_id <> $1
                     LIMIT 1
                 )
-            END                                                   AS avatar_path,
-            -- last message content (truncated for display)
+            END                                                           AS avatar_path,
             (
-                SELECT LEFT(content, 100)
-                FROM messages
-                WHERE conversation_id = c.id AND is_deleted = false
-                ORDER BY created_at DESC
-                LIMIT 1
-            )                                                     AS last_message,
+                SELECT LEFT(m.content, 100)
+                FROM messages m
+                WHERE m.conversation_id = c.id AND m.is_deleted = false
+                ORDER BY m.created_at DESC LIMIT 1
+            )                                                             AS last_message,
             (
-                SELECT created_at
-                FROM messages
-                WHERE conversation_id = c.id AND is_deleted = false
-                ORDER BY created_at DESC
-                LIMIT 1
-            )                                                     AS last_message_at,
-            -- unread count: messages sent by others that have no 'read' status for this user
+                SELECT m.created_at
+                FROM messages m
+                WHERE m.conversation_id = c.id AND m.is_deleted = false
+                ORDER BY m.created_at DESC LIMIT 1
+            )                                                             AS last_message_at,
             (
                 SELECT COUNT(*)
                 FROM messages m2
@@ -143,54 +148,79 @@ pub async fn cmd_get_conversations(
                       SELECT 1 FROM message_status ms
                       WHERE ms.message_id = m2.id AND ms.user_id = $1 AND ms.status = 'read'
                   )
-            )                                                     AS unread_count
+            )                                                             AS unread_count
         FROM conversations c
         JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id = $1
         LEFT JOIN groups g ON g.id = c.group_id
         ORDER BY last_message_at DESC NULLS LAST
         "#,
     )
-        .bind(user_id)
-        .fetch_all(&pool)
-        .await
-        .map_err(|e| format!("Erreur DB : {e}"))?;
+    .bind(uid)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("cmd_get_conversations DB error: {}", e);
+        format!("Erreur DB : {e}")
+    })?;
+
+    tracing::info!("cmd_get_conversations: {} conversations trouvées", rows.len());
 
     let mut conversations = Vec::with_capacity(rows.len());
 
     for row in rows {
-        let conv_id: i64 = row.try_get("id").unwrap_or_default();
-        let conv_type: String = row.try_get("conv_type").unwrap_or_default();
+        let conv_id: i32 = row.try_get::<i32, _>("id").map_err(|e| {
+            tracing::error!("Erreur lecture id conversation: {}", e);
+            format!("Erreur lecture id: {e}")
+        })?;
+        let conv_type: String = row.try_get("conv_type").unwrap_or_else(|_| "direct".into());
         let name: String = row.try_get("name").unwrap_or_else(|_| "(Sans nom)".into());
         let avatar_path: Option<String> = row.try_get("avatar_path").ok().flatten();
         let last_message: Option<String> = row.try_get("last_message").ok().flatten();
         let last_message_at: Option<DateTime<Utc>> = row.try_get("last_message_at").ok().flatten();
         let unread_count: i64 = row.try_get("unread_count").unwrap_or(0);
 
-        // Load participants for this conversation
+        // Load participants with their role
         let prows = sqlx::query(
             r#"
-            SELECT u.id, u.display_name, u.avatar_path,
-                   COALESCE(up.status, 'offline') AS presence_status
+            SELECT
+                u.id,
+                u.display_name,
+                u.avatar_path,
+                COALESCE(up.status, 'offline') AS presence_status,
+                COALESCE(gm.role, 'member')    AS role
             FROM conversation_participants cp
             JOIN users u ON u.id = cp.user_id
             LEFT JOIN user_presence up ON up.user_id = u.id
+            LEFT JOIN groups g2 ON g2.id = (
+                SELECT group_id FROM conversations WHERE id = $1
+            )
+            LEFT JOIN group_members gm ON gm.group_id = g2.id AND gm.user_id = u.id
             WHERE cp.conversation_id = $1
             "#,
         )
-            .bind(conv_id)
-            .fetch_all(&pool)
-            .await
-            .unwrap_or_default();
+        .bind(conv_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
 
         let participants = prows
             .iter()
-            .map(|pr| ParticipantInfo {
-                user_id: pr.try_get("id").unwrap_or_default(),
-                display_name: pr.try_get("display_name").unwrap_or_default(),
-                avatar_path: pr.try_get("avatar_path").ok().flatten(),
-                presence_status: pr.try_get("presence_status").unwrap_or_else(|_| "offline".into()),
+            .map(|pr| {
+                let pid: i32 = pr.try_get::<i32, _>("id").unwrap_or_default();
+                ParticipantInfo {
+                    user_id: pid,
+                    display_name: pr.try_get("display_name").unwrap_or_default(),
+                    avatar_path: pr.try_get("avatar_path").ok().flatten(),
+                    presence_status: pr.try_get("presence_status").unwrap_or_else(|_| "offline".into()),
+                    role: pr.try_get("role").unwrap_or_else(|_| "member".into()),
+                }
             })
             .collect();
+
+        tracing::debug!(
+            "Conversation id={} type={} name='{}' participants={}",
+            conv_id, conv_type, name, prows.len()
+        );
 
         conversations.push(ConversationSummary {
             id: conv_id,
@@ -207,13 +237,14 @@ pub async fn cmd_get_conversations(
     Ok(conversations)
 }
 
-/// Return paginated messages for a conversation (50 by default, going back in time).
+// ─── GET MESSAGES ─────────────────────────────────────────────────────────────
+
 #[tauri::command]
 pub async fn cmd_get_messages(
     token: String,
-    conversation_id: i64,
-    limit: Option<i64>,
-    before_id: Option<i64>,
+    conversation_id: i32,
+    limit: Option<i32>,
+    before_id: Option<i32>,
     state: State<'_, SharedState>,
 ) -> Result<Vec<MessageDto>, String> {
     let (pool, jwt_secret) = {
@@ -223,22 +254,24 @@ pub async fn cmd_get_messages(
             s.jwt_secret.clone(),
         )
     };
-
-    let user_id = extract_user_id(&token, &jwt_secret)?;
+    let uid = extract_uid(&token, &jwt_secret)?;
     let page_size = limit.unwrap_or(50).clamp(1, 200);
 
-    // Verify user is a participant
+    tracing::info!("cmd_get_messages: uid={} conv={} limit={} before={:?}", uid, conversation_id, page_size, before_id);
+
+    // Verify participant
     let is_member: bool = sqlx::query_as::<_, (bool,)>(
         "SELECT EXISTS(SELECT 1 FROM conversation_participants WHERE conversation_id=$1 AND user_id=$2)",
     )
-        .bind(conversation_id)
-        .bind(user_id)
-        .fetch_one(&pool)
-        .await
-        .map(|(b,)| b)
-        .unwrap_or(false);
+    .bind(conversation_id)
+    .bind(uid)
+    .fetch_one(&pool)
+    .await
+    .map(|(b,)| b)
+    .unwrap_or(false);
 
     if !is_member {
+        tracing::warn!("cmd_get_messages: user {} not in conversation {}", uid, conversation_id);
         return Err("Accès refusé à cette conversation".to_string());
     }
 
@@ -251,8 +284,8 @@ pub async fn cmd_get_messages(
                    rm.content AS reply_to_content,
                    COALESCE(
                        (SELECT ms.status FROM message_status ms
-                        WHERE ms.message_id = m.id ORDER BY
-                            CASE ms.status WHEN 'read' THEN 1 WHEN 'delivered' THEN 2 ELSE 3 END
+                        WHERE ms.message_id = m.id
+                        ORDER BY CASE ms.status WHEN 'read' THEN 1 WHEN 'delivered' THEN 2 ELSE 3 END
                         LIMIT 1),
                        'sent'
                    ) AS status
@@ -264,12 +297,12 @@ pub async fn cmd_get_messages(
             LIMIT $3
             "#,
         )
-            .bind(conversation_id)
-            .bind(bid)
-            .bind(page_size)
-            .fetch_all(&pool)
-            .await
-            .map_err(|e| format!("Erreur DB : {e}"))?
+        .bind(conversation_id)
+        .bind(bid)
+        .bind(page_size)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| { tracing::error!("cmd_get_messages DB error: {}", e); format!("Erreur DB : {e}") })?
     } else {
         sqlx::query(
             r#"
@@ -279,8 +312,8 @@ pub async fn cmd_get_messages(
                    rm.content AS reply_to_content,
                    COALESCE(
                        (SELECT ms.status FROM message_status ms
-                        WHERE ms.message_id = m.id ORDER BY
-                            CASE ms.status WHEN 'read' THEN 1 WHEN 'delivered' THEN 2 ELSE 3 END
+                        WHERE ms.message_id = m.id
+                        ORDER BY CASE ms.status WHEN 'read' THEN 1 WHEN 'delivered' THEN 2 ELSE 3 END
                         LIMIT 1),
                        'sent'
                    ) AS status
@@ -292,32 +325,32 @@ pub async fn cmd_get_messages(
             LIMIT $2
             "#,
         )
-            .bind(conversation_id)
-            .bind(page_size)
-            .fetch_all(&pool)
-            .await
-            .map_err(|e| format!("Erreur DB : {e}"))?
+        .bind(conversation_id)
+        .bind(page_size)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| { tracing::error!("cmd_get_messages DB error: {}", e); format!("Erreur DB : {e}") })?
     };
 
-    let mut messages: Vec<MessageDto> = Vec::with_capacity(rows.len());
+    tracing::info!("cmd_get_messages: {} messages trouvés pour conv={}", rows.len(), conversation_id);
 
+    let mut messages = Vec::with_capacity(rows.len());
     for row in &rows {
-        let msg_id: i64 = row.try_get("id").unwrap_or_default();
+        let msg_id: i32 = row.try_get::<i32, _>("id").unwrap_or_default();
 
-        // Load attachments for this message
         let att_rows = sqlx::query(
             "SELECT id, file_name, file_path, file_type, file_size, thumbnail
              FROM attachments WHERE message_id = $1",
         )
-            .bind(msg_id)
-            .fetch_all(&pool)
-            .await
-            .unwrap_or_default();
+        .bind(msg_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
 
         let attachments = att_rows
             .iter()
             .map(|ar| AttachmentDto {
-                id: ar.try_get("id").unwrap_or_default(),
+                id: ar.try_get::<i32, _>("id").unwrap_or_default(),
                 file_name: ar.try_get("file_name").unwrap_or_default(),
                 file_path: ar.try_get("file_path").unwrap_or_default(),
                 file_type: ar.try_get("file_type").ok().flatten(),
@@ -328,13 +361,13 @@ pub async fn cmd_get_messages(
 
         messages.push(MessageDto {
             id: msg_id,
-            conversation_id: row.try_get("conversation_id").unwrap_or_default(),
-            sender_id: row.try_get("sender_id").ok().flatten(),
+            conversation_id: row.try_get::<i32, _>("conversation_id").unwrap_or_default(),
+            sender_id: row.try_get::<Option<i32>, _>("sender_id").ok().flatten(),
             sender_name: row.try_get("sender_name").ok().flatten(),
             sender_avatar: row.try_get("sender_avatar").ok().flatten(),
             content: row.try_get("content").ok().flatten(),
             message_type: row.try_get("message_type").unwrap_or_else(|_| "text".into()),
-            reply_to_id: row.try_get("reply_to_id").ok().flatten(),
+            reply_to_id: row.try_get::<Option<i32>, _>("reply_to_id").ok().flatten(),
             reply_to_content: row.try_get("reply_to_content").ok().flatten(),
             is_edited: row.try_get("is_edited").unwrap_or(false),
             is_deleted: row.try_get("is_deleted").unwrap_or(false),
@@ -344,20 +377,19 @@ pub async fn cmd_get_messages(
         });
     }
 
-    // Return in ascending order (oldest first)
     messages.reverse();
     Ok(messages)
 }
 
-/// Send a text message to a conversation.
-/// Broadcasts the new message to all participants via WS hub.
+// ─── SEND MESSAGE ─────────────────────────────────────────────────────────────
+
 #[tauri::command]
 pub async fn cmd_send_message(
     token: String,
-    conversation_id: i64,
+    conversation_id: i32,
     content: String,
     message_type: Option<String>,
-    reply_to_id: Option<i64>,
+    reply_to_id: Option<i32>,
     state: State<'_, SharedState>,
 ) -> Result<MessageDto, String> {
     let (pool, jwt_secret, hub) = {
@@ -368,22 +400,24 @@ pub async fn cmd_send_message(
             s.ws_hub.clone(),
         )
     };
-
-    let user_id = extract_user_id(&token, &jwt_secret)?;
+    let uid = extract_uid(&token, &jwt_secret)?;
     let msg_type = message_type.unwrap_or_else(|| "text".into());
+
+    tracing::info!("cmd_send_message: uid={} conv={} type={}", uid, conversation_id, msg_type);
 
     // Verify participant
     let is_member: bool = sqlx::query_as::<_, (bool,)>(
         "SELECT EXISTS(SELECT 1 FROM conversation_participants WHERE conversation_id=$1 AND user_id=$2)",
     )
-        .bind(conversation_id)
-        .bind(user_id)
-        .fetch_one(&pool)
-        .await
-        .map(|(b,)| b)
-        .unwrap_or(false);
+    .bind(conversation_id)
+    .bind(uid)
+    .fetch_one(&pool)
+    .await
+    .map(|(b,)| b)
+    .unwrap_or(false);
 
     if !is_member {
+        tracing::warn!("cmd_send_message: user {} not in conversation {}", uid, conversation_id);
         return Err("Accès refusé à cette conversation".to_string());
     }
 
@@ -395,40 +429,47 @@ pub async fn cmd_send_message(
         RETURNING id, created_at
         "#,
     )
-        .bind(conversation_id)
-        .bind(user_id)
-        .bind(&content)
-        .bind(&msg_type)
-        .bind(reply_to_id)
-        .fetch_one(&pool)
-        .await
-        .map_err(|e| format!("Erreur DB : {e}"))?;
+    .bind(conversation_id)
+    .bind(uid)
+    .bind(&content)
+    .bind(&msg_type)
+    .bind(reply_to_id)
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("cmd_send_message INSERT error: {}", e);
+        format!("Erreur insertion message : {e}")
+    })?;
 
-    let msg_id: i64 = row.try_get("id").unwrap_or_default();
+    let msg_id: i32 = row.try_get::<i32, _>("id").map_err(|e| {
+        tracing::error!("cmd_send_message lecture id: {}", e);
+        format!("Erreur lecture id message: {e}")
+    })?;
     let created_at: DateTime<Utc> = row.try_get("created_at").unwrap_or_else(|_| Utc::now());
 
-    // Insert sent status for sender
+    tracing::info!("cmd_send_message: message id={} inséré dans conv={}", msg_id, conversation_id);
+
+    // Insert sent status
     sqlx::query(
         "INSERT INTO message_status (message_id, user_id, status) VALUES ($1, $2, 'sent')
          ON CONFLICT DO NOTHING",
     )
-        .bind(msg_id)
-        .bind(user_id)
-        .execute(&pool)
-        .await
-        .ok();
+    .bind(msg_id)
+    .bind(uid)
+    .execute(&pool)
+    .await
+    .ok();
 
     // Sender info
-    let (sender_name, sender_avatar) = {
-        let r: Option<(String, Option<String>)> = sqlx::query_as(
-            "SELECT display_name, avatar_path FROM users WHERE id = $1",
-        )
-            .bind(user_id)
-            .fetch_optional(&pool)
-            .await
-            .unwrap_or(None);
-        r.map(|(n, a)| (Some(n), a)).unwrap_or((None, None))
-    };
+    let (sender_name, sender_avatar): (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT display_name, avatar_path FROM users WHERE id = $1",
+    )
+    .bind(uid)
+    .fetch_optional(&pool)
+    .await
+    .unwrap_or(None)
+    .map(|(n, a)| (Some(n), a))
+    .unwrap_or((None, None));
 
     let reply_to_content: Option<String> = if let Some(rid) = reply_to_id {
         sqlx::query_as::<_, (Option<String>,)>("SELECT content FROM messages WHERE id = $1")
@@ -445,7 +486,7 @@ pub async fn cmd_send_message(
     let dto = MessageDto {
         id: msg_id,
         conversation_id,
-        sender_id: Some(user_id),
+        sender_id: Some(uid),
         sender_name: sender_name.clone(),
         sender_avatar: sender_avatar.clone(),
         content: Some(content),
@@ -459,32 +500,34 @@ pub async fn cmd_send_message(
         attachments: vec![],
     };
 
-    // Broadcast to all participants via WS hub
+    // Broadcast via WS to all participants
     if let Some(hub) = hub {
-        let participants: Vec<(i64,)> = sqlx::query_as(
+        let participant_ids: Vec<(i32,)> = sqlx::query_as(
             "SELECT user_id FROM conversation_participants WHERE conversation_id = $1",
         )
-            .bind(conversation_id)
-            .fetch_all(&pool)
-            .await
-            .unwrap_or_default();
+        .bind(conversation_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
 
-        let user_ids: Vec<i64> = participants.into_iter().map(|(id,)| id).collect();
+        let user_ids: Vec<i64> = participant_ids.into_iter().map(|(id,)| id as i64).collect();
         let event = ws::ServerEvent::NewMessage {
-            conversation_id,
+            conversation_id: conversation_id as i64,
             message: serde_json::to_value(&dto).unwrap_or_default(),
         };
+        tracing::info!("cmd_send_message: broadcast vers {} participants", user_ids.len());
         hub.broadcast_to_users(&user_ids, &event).await;
     }
 
     Ok(dto)
 }
 
-/// Mark all messages in a conversation as read for the authenticated user.
+// ─── MARK AS READ ─────────────────────────────────────────────────────────────
+
 #[tauri::command]
 pub async fn cmd_mark_as_read(
     token: String,
-    conversation_id: i64,
+    conversation_id: i32,
     state: State<'_, SharedState>,
 ) -> Result<(), String> {
     let (pool, jwt_secret, hub) = {
@@ -495,10 +538,10 @@ pub async fn cmd_mark_as_read(
             s.ws_hub.clone(),
         )
     };
+    let uid = extract_uid(&token, &jwt_secret)?;
 
-    let user_id = extract_user_id(&token, &jwt_secret)?;
+    tracing::info!("cmd_mark_as_read: uid={} conv={}", uid, conversation_id);
 
-    // Upsert read status for all unread messages from others
     sqlx::query(
         r#"
         INSERT INTO message_status (message_id, user_id, status, updated_at)
@@ -513,52 +556,46 @@ pub async fn cmd_mark_as_read(
         ON CONFLICT (message_id, user_id) DO UPDATE SET status = 'read', updated_at = NOW()
         "#,
     )
-        .bind(user_id)
-        .bind(conversation_id)
-        .execute(&pool)
-        .await
-        .map_err(|e| format!("Erreur DB : {e}"))?;
+    .bind(uid)
+    .bind(conversation_id)
+    .execute(&pool)
+    .await
+    .map_err(|e| { tracing::error!("cmd_mark_as_read error: {}", e); format!("Erreur DB : {e}") })?;
 
-    // Notify message senders via WS that their messages were read
     if let Some(hub) = hub {
-        let sender_ids: Vec<(i64,)> = sqlx::query_as(
+        let sender_ids: Vec<(i32,)> = sqlx::query_as(
             "SELECT DISTINCT sender_id FROM messages WHERE conversation_id = $1 AND sender_id <> $2 AND sender_id IS NOT NULL",
         )
-            .bind(conversation_id)
-            .bind(user_id)
-            .fetch_all(&pool)
-            .await
-            .unwrap_or_default();
+        .bind(conversation_id)
+        .bind(uid)
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
 
         for (sid,) in sender_ids {
             hub.send_to_user(
-                sid,
+                sid as i64,
                 &ws::ServerEvent::MessageStatus {
-                    message_id: 0, // 0 means "all in conversation"
-                    conversation_id,
-                    user_id,
+                    message_id: 0,
+                    conversation_id: conversation_id as i64,
+                    user_id: uid as i64,
                     status: "read".into(),
                 },
             )
-                .await;
+            .await;
         }
     }
 
     Ok(())
 }
 
-/// Register an uploaded attachment (after the file has been saved to disk via tauri-plugin-fs).
+// ─── LIST USERS ───────────────────────────────────────────────────────────────
+
 #[tauri::command]
-pub async fn cmd_upload_attachment(
+pub async fn cmd_list_users(
     token: String,
-    message_id: i64,
-    file_name: String,
-    file_path: String,
-    file_type: Option<String>,
-    file_size: Option<i64>,
-    thumbnail: Option<String>,
     state: State<'_, SharedState>,
-) -> Result<AttachmentDto, String> {
+) -> Result<Vec<UserForChat>, String> {
     let (pool, jwt_secret) = {
         let s = state.lock().await;
         (
@@ -566,43 +603,512 @@ pub async fn cmd_upload_attachment(
             s.jwt_secret.clone(),
         )
     };
+    let uid = extract_uid(&token, &jwt_secret)?;
 
-    let _user_id = extract_user_id(&token, &jwt_secret)?;
+    tracing::info!("cmd_list_users: uid={}", uid);
 
-    let row = sqlx::query(
+    let users: Vec<UserForChat> = sqlx::query_as::<_, UserForChat>(
         r#"
-        INSERT INTO attachments (message_id, file_name, file_path, file_type, file_size, thumbnail)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id
+        SELECT
+            u.id,
+            u.username,
+            u.display_name,
+            u.email,
+            u.department,
+            u.avatar_path,
+            COALESCE(up.status, 'offline') AS presence_status
+        FROM users u
+        LEFT JOIN user_presence up ON up.user_id = u.id
+        WHERE u.is_active = true AND u.id <> $1
+        ORDER BY u.display_name ASC
         "#,
     )
-        .bind(message_id)
-        .bind(&file_name)
-        .bind(&file_path)
-        .bind(&file_type)
-        .bind(file_size)
-        .bind(&thumbnail)
-        .fetch_one(&pool)
-        .await
-        .map_err(|e| format!("Erreur DB : {e}"))?;
+    .bind(uid)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| { tracing::error!("cmd_list_users error: {}", e); format!("Erreur DB : {e}") })?;
 
-    let id: i64 = row.try_get("id").unwrap_or_default();
-
-    Ok(AttachmentDto {
-        id,
-        file_name,
-        file_path,
-        file_type,
-        file_size,
-        thumbnail,
-    })
+    tracing::info!("cmd_list_users: {} utilisateurs trouvés", users.len());
+    Ok(users)
 }
 
-/// Full-text search in a conversation's messages.
+// ─── CREATE DIRECT CONVERSATION ───────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn cmd_create_direct_conversation(
+    token: String,
+    other_user_id: i32,
+    state: State<'_, SharedState>,
+) -> Result<i32, String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    let uid = extract_uid(&token, &jwt_secret)?;
+
+    tracing::info!("cmd_create_direct_conversation: uid={} other={}", uid, other_user_id);
+
+    if other_user_id <= 0 {
+        return Err(format!("other_user_id invalide : {}", other_user_id));
+    }
+    if other_user_id == uid {
+        return Err("Impossible de créer une conversation avec soi-même".to_string());
+    }
+
+    // Check target user exists
+    let exists: bool = sqlx::query_as::<_, (bool,)>(
+        "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND is_active = true)",
+    )
+    .bind(other_user_id)
+    .fetch_one(&pool)
+    .await
+    .map(|(b,)| b)
+    .unwrap_or(false);
+
+    if !exists {
+        return Err(format!("Utilisateur {} introuvable ou inactif", other_user_id));
+    }
+
+    // Return existing conversation if any
+    let existing: Option<(i32,)> = sqlx::query_as(
+        r#"
+        SELECT c.id FROM conversations c
+        JOIN conversation_participants cp1 ON cp1.conversation_id = c.id AND cp1.user_id = $1
+        JOIN conversation_participants cp2 ON cp2.conversation_id = c.id AND cp2.user_id = $2
+        WHERE c.type = 'direct'
+        LIMIT 1
+        "#,
+    )
+    .bind(uid)
+    .bind(other_user_id)
+    .fetch_optional(&pool)
+    .await
+    .unwrap_or(None);
+
+    if let Some((id,)) = existing {
+        tracing::info!("cmd_create_direct_conversation: conversation existante id={}", id);
+        return Ok(id);
+    }
+
+    // Create new conversation
+    let row = sqlx::query(
+        "INSERT INTO conversations (type) VALUES ('direct') RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| { tracing::error!("cmd_create_direct_conversation INSERT conv error: {}", e); format!("Erreur création conversation : {e}") })?;
+
+    let conv_id: i32 = row.try_get::<i32, _>("id").map_err(|e| format!("Erreur lecture id: {e}"))?;
+
+    // Add both participants
+    sqlx::query(
+        "INSERT INTO conversation_participants (conversation_id, user_id) VALUES ($1, $2), ($1, $3)",
+    )
+    .bind(conv_id)
+    .bind(uid)
+    .bind(other_user_id)
+    .execute(&pool)
+    .await
+    .map_err(|e| { tracing::error!("cmd_create_direct_conversation INSERT participants error: {}", e); format!("Erreur ajout participants : {e}") })?;
+
+    tracing::info!("cmd_create_direct_conversation: nouvelle conversation id={}", conv_id);
+    Ok(conv_id)
+}
+
+// ─── CREATE GROUP CONVERSATION ────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn cmd_create_group_conversation(
+    token: String,
+    name: String,
+    description: String,
+    member_ids: Vec<i32>,
+    state: State<'_, SharedState>,
+) -> Result<i32, String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    let uid = extract_uid(&token, &jwt_secret)?;
+
+    tracing::info!("cmd_create_group_conversation: uid={} name='{}' members={:?}", uid, name, member_ids);
+
+    if name.trim().is_empty() {
+        return Err("Le nom du groupe est requis".to_string());
+    }
+
+    // Insert group
+    let group_row = sqlx::query(
+        "INSERT INTO groups (name, description, created_by) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(name.trim())
+    .bind(if description.is_empty() { None } else { Some(description.as_str()) })
+    .bind(uid)
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| { tracing::error!("cmd_create_group_conversation INSERT group error: {}", e); format!("Erreur création groupe : {e}") })?;
+
+    let group_id: i32 = group_row.try_get::<i32, _>("id").map_err(|e| format!("Erreur lecture id groupe: {e}"))?;
+
+    // Insert conversation
+    let conv_row = sqlx::query(
+        "INSERT INTO conversations (type, group_id) VALUES ('group', $1) RETURNING id",
+    )
+    .bind(group_id)
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| { tracing::error!("cmd_create_group_conversation INSERT conv error: {}", e); format!("Erreur création conversation : {e}") })?;
+
+    let conv_id: i32 = conv_row.try_get::<i32, _>("id").map_err(|e| format!("Erreur lecture id conversation: {e}"))?;
+
+    // Add creator as admin in group_members AND conversation_participants
+    sqlx::query(
+        "INSERT INTO group_members (group_id, user_id, role, added_by) VALUES ($1, $2, 'admin', $2)
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(group_id)
+    .bind(uid)
+    .execute(&pool)
+    .await
+    .map_err(|e| { tracing::error!("cmd_create_group INSERT creator group_members error: {}", e); format!("Erreur ajout créateur groupe : {e}") })?;
+
+    sqlx::query(
+        "INSERT INTO conversation_participants (conversation_id, user_id) VALUES ($1, $2)
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(conv_id)
+    .bind(uid)
+    .execute(&pool)
+    .await
+    .map_err(|e| { tracing::error!("cmd_create_group INSERT creator participants error: {}", e); format!("Erreur ajout créateur participant : {e}") })?;
+
+    // Add other members
+    for &mid in &member_ids {
+        if mid == uid {
+            continue;
+        }
+        // Check user exists
+        let member_exists: bool = sqlx::query_as::<_, (bool,)>(
+            "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND is_active = true)",
+        )
+        .bind(mid)
+        .fetch_one(&pool)
+        .await
+        .map(|(b,)| b)
+        .unwrap_or(false);
+
+        if !member_exists {
+            tracing::warn!("cmd_create_group: user {} introuvable, ignoré", mid);
+            continue;
+        }
+
+        sqlx::query(
+            "INSERT INTO group_members (group_id, user_id, role, added_by) VALUES ($1, $2, 'member', $3)
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(group_id)
+        .bind(mid)
+        .bind(uid)
+        .execute(&pool)
+        .await
+        .map_err(|e| tracing::error!("cmd_create_group INSERT member {} group_members: {}", mid, e))
+        .ok();
+
+        sqlx::query(
+            "INSERT INTO conversation_participants (conversation_id, user_id) VALUES ($1, $2)
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(conv_id)
+        .bind(mid)
+        .execute(&pool)
+        .await
+        .map_err(|e| tracing::error!("cmd_create_group INSERT member {} participants: {}", mid, e))
+        .ok();
+    }
+
+    // System message
+    sqlx::query(
+        "INSERT INTO messages (conversation_id, sender_id, content, message_type)
+         VALUES ($1, $2, 'Groupe créé', 'system')",
+    )
+    .bind(conv_id)
+    .bind(uid)
+    .execute(&pool)
+    .await
+    .ok();
+
+    let total_members = member_ids.iter().filter(|&&m| m != uid).count() + 1;
+    tracing::info!(
+        "cmd_create_group_conversation: groupe id={} conv={} créé avec {} membres",
+        group_id, conv_id, total_members
+    );
+
+    Ok(conv_id)
+}
+
+// ─── ADD GROUP MEMBER ─────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn cmd_add_group_member(
+    token: String,
+    conversation_id: i32,
+    user_id: i32,
+    state: State<'_, SharedState>,
+) -> Result<(), String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    let uid = extract_uid(&token, &jwt_secret)?;
+
+    tracing::info!("cmd_add_group_member: requester={} conv={} target={}", uid, conversation_id, user_id);
+
+    // Get group_id for this conversation
+    let group_id: i32 = sqlx::query_as::<_, (i32,)>(
+        "SELECT group_id FROM conversations WHERE id = $1 AND type = 'group'",
+    )
+    .bind(conversation_id)
+    .fetch_one(&pool)
+    .await
+    .map(|(g,)| g)
+    .map_err(|e| { tracing::error!("cmd_add_group_member: conv {} not a group: {}", conversation_id, e); format!("Conversation introuvable ou pas un groupe: {e}") })?;
+
+    // Verify requester is admin
+    let is_admin: bool = sqlx::query_as::<_, (bool,)>(
+        "SELECT EXISTS(SELECT 1 FROM group_members WHERE group_id=$1 AND user_id=$2 AND role='admin')",
+    )
+    .bind(group_id)
+    .bind(uid)
+    .fetch_one(&pool)
+    .await
+    .map(|(b,)| b)
+    .unwrap_or(false);
+
+    if !is_admin {
+        tracing::warn!("cmd_add_group_member: user {} is not admin of group {}", uid, group_id);
+        return Err("Seul un administrateur peut ajouter des membres".to_string());
+    }
+
+    // Add to group_members
+    sqlx::query(
+        "INSERT INTO group_members (group_id, user_id, role, added_by) VALUES ($1, $2, 'member', $3)
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(group_id)
+    .bind(user_id)
+    .bind(uid)
+    .execute(&pool)
+    .await
+    .map_err(|e| { tracing::error!("cmd_add_group_member INSERT group_members error: {}", e); format!("Erreur ajout membre groupe: {e}") })?;
+
+    // Add to conversation_participants
+    sqlx::query(
+        "INSERT INTO conversation_participants (conversation_id, user_id) VALUES ($1, $2)
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(conversation_id)
+    .bind(user_id)
+    .execute(&pool)
+    .await
+    .map_err(|e| { tracing::error!("cmd_add_group_member INSERT participants error: {}", e); format!("Erreur ajout participant conversation: {e}") })?;
+
+    // System message
+    let member_name: String = sqlx::query_as::<_, (String,)>(
+        "SELECT display_name FROM users WHERE id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(&pool)
+    .await
+    .ok()
+    .flatten()
+    .map(|(n,)| n)
+    .unwrap_or_else(|| format!("User {}", user_id));
+
+    sqlx::query(
+        "INSERT INTO messages (conversation_id, sender_id, content, message_type) VALUES ($1, $2, $3, 'system')",
+    )
+    .bind(conversation_id)
+    .bind(uid)
+    .bind(format!("{} a été ajouté au groupe", member_name))
+    .execute(&pool)
+    .await
+    .ok();
+
+    tracing::info!("cmd_add_group_member: user {} ajouté au groupe {}", user_id, group_id);
+    Ok(())
+}
+
+// ─── REMOVE GROUP MEMBER ──────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn cmd_remove_group_member(
+    token: String,
+    conversation_id: i32,
+    user_id: i32,
+    state: State<'_, SharedState>,
+) -> Result<(), String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    let uid = extract_uid(&token, &jwt_secret)?;
+
+    tracing::info!("cmd_remove_group_member: requester={} conv={} target={}", uid, conversation_id, user_id);
+
+    // Get group_id
+    let group_id: i32 = sqlx::query_as::<_, (i32,)>(
+        "SELECT group_id FROM conversations WHERE id = $1 AND type = 'group'",
+    )
+    .bind(conversation_id)
+    .fetch_one(&pool)
+    .await
+    .map(|(g,)| g)
+    .map_err(|e| format!("Conversation introuvable ou pas un groupe: {e}"))?;
+
+    // Must be admin OR removing oneself
+    let is_admin: bool = sqlx::query_as::<_, (bool,)>(
+        "SELECT EXISTS(SELECT 1 FROM group_members WHERE group_id=$1 AND user_id=$2 AND role='admin')",
+    )
+    .bind(group_id)
+    .bind(uid)
+    .fetch_one(&pool)
+    .await
+    .map(|(b,)| b)
+    .unwrap_or(false);
+
+    if !is_admin && uid != user_id {
+        return Err("Seul un administrateur peut retirer des membres".to_string());
+    }
+
+    // Remove from group_members and conversation_participants
+    sqlx::query("DELETE FROM group_members WHERE group_id = $1 AND user_id = $2")
+        .bind(group_id)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| { tracing::error!("cmd_remove_group_member DELETE group_members: {}", e); format!("Erreur suppression membre: {e}") })?;
+
+    sqlx::query("DELETE FROM conversation_participants WHERE conversation_id = $1 AND user_id = $2")
+        .bind(conversation_id)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| { tracing::error!("cmd_remove_group_member DELETE participants: {}", e); format!("Erreur suppression participant: {e}") })?;
+
+    // System message
+    let member_name: String = sqlx::query_as::<_, (String,)>(
+        "SELECT display_name FROM users WHERE id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(&pool)
+    .await
+    .ok()
+    .flatten()
+    .map(|(n,)| n)
+    .unwrap_or_else(|| format!("User {}", user_id));
+
+    let msg = if uid == user_id {
+        format!("{} a quitté le groupe", member_name)
+    } else {
+        format!("{} a été retiré du groupe", member_name)
+    };
+
+    sqlx::query(
+        "INSERT INTO messages (conversation_id, sender_id, content, message_type) VALUES ($1, $2, $3, 'system')",
+    )
+    .bind(conversation_id)
+    .bind(uid)
+    .bind(msg)
+    .execute(&pool)
+    .await
+    .ok();
+
+    tracing::info!("cmd_remove_group_member: user {} retiré du groupe {}", user_id, group_id);
+    Ok(())
+}
+
+// ─── UPDATE MEMBER ROLE ───────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn cmd_update_member_role(
+    token: String,
+    conversation_id: i32,
+    user_id: i32,
+    role: String,
+    state: State<'_, SharedState>,
+) -> Result<(), String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    let uid = extract_uid(&token, &jwt_secret)?;
+
+    if role != "admin" && role != "member" {
+        return Err(format!("Rôle invalide : {}. Valeurs acceptées : admin, member", role));
+    }
+
+    tracing::info!("cmd_update_member_role: requester={} conv={} target={} role={}", uid, conversation_id, user_id, role);
+
+    // Get group_id
+    let group_id: i32 = sqlx::query_as::<_, (i32,)>(
+        "SELECT group_id FROM conversations WHERE id = $1 AND type = 'group'",
+    )
+    .bind(conversation_id)
+    .fetch_one(&pool)
+    .await
+    .map(|(g,)| g)
+    .map_err(|e| format!("Conversation introuvable ou pas un groupe: {e}"))?;
+
+    // Must be admin
+    let is_admin: bool = sqlx::query_as::<_, (bool,)>(
+        "SELECT EXISTS(SELECT 1 FROM group_members WHERE group_id=$1 AND user_id=$2 AND role='admin')",
+    )
+    .bind(group_id)
+    .bind(uid)
+    .fetch_one(&pool)
+    .await
+    .map(|(b,)| b)
+    .unwrap_or(false);
+
+    if !is_admin {
+        return Err("Seul un administrateur peut modifier les rôles".to_string());
+    }
+
+    sqlx::query(
+        "UPDATE group_members SET role = $1 WHERE group_id = $2 AND user_id = $3",
+    )
+    .bind(&role)
+    .bind(group_id)
+    .bind(user_id)
+    .execute(&pool)
+    .await
+    .map_err(|e| { tracing::error!("cmd_update_member_role UPDATE error: {}", e); format!("Erreur mise à jour rôle: {e}") })?;
+
+    tracing::info!("cmd_update_member_role: user {} → rôle {} dans groupe {}", user_id, role, group_id);
+    Ok(())
+}
+
+// ─── SEARCH MESSAGES (in conversation) ───────────────────────────────────────
+
 #[tauri::command]
 pub async fn cmd_search_messages(
     token: String,
-    conversation_id: i64,
+    conversation_id: i32,
     query: String,
     state: State<'_, SharedState>,
 ) -> Result<Vec<MessageDto>, String> {
@@ -613,18 +1119,17 @@ pub async fn cmd_search_messages(
             s.jwt_secret.clone(),
         )
     };
-
-    let user_id = extract_user_id(&token, &jwt_secret)?;
+    let uid = extract_uid(&token, &jwt_secret)?;
 
     let is_member: bool = sqlx::query_as::<_, (bool,)>(
         "SELECT EXISTS(SELECT 1 FROM conversation_participants WHERE conversation_id=$1 AND user_id=$2)",
     )
-        .bind(conversation_id)
-        .bind(user_id)
-        .fetch_one(&pool)
-        .await
-        .map(|(b,)| b)
-        .unwrap_or(false);
+    .bind(conversation_id)
+    .bind(uid)
+    .fetch_one(&pool)
+    .await
+    .map(|(b,)| b)
+    .unwrap_or(false);
 
     if !is_member {
         return Err("Accès refusé".to_string());
@@ -647,23 +1152,23 @@ pub async fn cmd_search_messages(
         LIMIT 50
         "#,
     )
-        .bind(conversation_id)
-        .bind(&pattern)
-        .fetch_all(&pool)
-        .await
-        .map_err(|e| format!("Erreur DB : {e}"))?;
+    .bind(conversation_id)
+    .bind(&pattern)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("Erreur DB : {e}"))?;
 
     let messages = rows
         .iter()
         .map(|row| MessageDto {
-            id: row.try_get("id").unwrap_or_default(),
-            conversation_id: row.try_get("conversation_id").unwrap_or_default(),
-            sender_id: row.try_get("sender_id").ok().flatten(),
+            id: row.try_get::<i32, _>("id").unwrap_or_default(),
+            conversation_id: row.try_get::<i32, _>("conversation_id").unwrap_or_default(),
+            sender_id: row.try_get::<Option<i32>, _>("sender_id").ok().flatten(),
             sender_name: row.try_get("sender_name").ok().flatten(),
             sender_avatar: row.try_get("sender_avatar").ok().flatten(),
             content: row.try_get("content").ok().flatten(),
             message_type: row.try_get("message_type").unwrap_or_else(|_| "text".into()),
-            reply_to_id: row.try_get("reply_to_id").ok().flatten(),
+            reply_to_id: None,
             reply_to_content: None,
             is_edited: row.try_get("is_edited").unwrap_or(false),
             is_deleted: row.try_get("is_deleted").unwrap_or(false),
@@ -676,332 +1181,144 @@ pub async fn cmd_search_messages(
     Ok(messages)
 }
 
-/// Return the WebSocket server port so the frontend can connect.
+// ─── SEARCH ALL MESSAGES ──────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn cmd_search_all_messages(
+    token: String,
+    query: String,
+    state: State<'_, SharedState>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    let uid = extract_uid(&token, &jwt_secret)?;
+
+    let pattern = format!("%{}%", query.to_lowercase());
+
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            m.id, m.conversation_id, m.sender_id, m.content, m.message_type,
+            m.reply_to_id, m.is_edited, m.is_deleted, m.created_at,
+            u.display_name AS sender_name, u.avatar_path AS sender_avatar,
+            c.type AS conv_type,
+            CASE
+                WHEN c.type = 'group' THEN g.name
+                ELSE (
+                    SELECT u2.display_name
+                    FROM conversation_participants cp2
+                    JOIN users u2 ON u2.id = cp2.user_id
+                    WHERE cp2.conversation_id = c.id AND cp2.user_id <> $1
+                    LIMIT 1
+                )
+            END AS conv_name,
+            CASE WHEN c.type = 'group' THEN g.avatar_path ELSE NULL END AS conv_avatar_path
+        FROM messages m
+        JOIN conversations c ON c.id = m.conversation_id
+        JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id = $1
+        LEFT JOIN users u ON u.id = m.sender_id
+        LEFT JOIN groups g ON g.id = c.group_id
+        WHERE m.is_deleted = false
+          AND LOWER(m.content) LIKE $2
+        ORDER BY m.created_at DESC
+        LIMIT 50
+        "#,
+    )
+    .bind(uid)
+    .bind(&pattern)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("Erreur DB : {e}"))?;
+
+    let results: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|row| {
+            let conv_id: i32 = row.try_get::<i32, _>("conversation_id").unwrap_or_default();
+            let msg = serde_json::json!({
+                "id": row.try_get::<i32, _>("id").unwrap_or_default(),
+                "conversation_id": conv_id,
+                "sender_id": row.try_get::<Option<i32>, _>("sender_id").ok().flatten(),
+                "sender_name": row.try_get::<Option<String>, _>("sender_name").ok().flatten(),
+                "sender_avatar": row.try_get::<Option<String>, _>("sender_avatar").ok().flatten(),
+                "content": row.try_get::<Option<String>, _>("content").ok().flatten(),
+                "message_type": row.try_get::<String, _>("message_type").unwrap_or_else(|_| "text".into()),
+                "reply_to_id": serde_json::Value::Null,
+                "reply_to_content": serde_json::Value::Null,
+                "is_edited": row.try_get::<bool, _>("is_edited").unwrap_or(false),
+                "is_deleted": row.try_get::<bool, _>("is_deleted").unwrap_or(false),
+                "created_at": row.try_get::<DateTime<Utc>, _>("created_at").unwrap_or_else(|_| Utc::now()),
+                "status": "sent",
+                "attachments": []
+            });
+            let conv = serde_json::json!({
+                "id": conv_id,
+                "conv_type": row.try_get::<String, _>("conv_type").unwrap_or_else(|_| "direct".into()),
+                "name": row.try_get::<String, _>("conv_name").unwrap_or_else(|_| "(Sans nom)".into()),
+                "avatar_path": row.try_get::<Option<String>, _>("conv_avatar_path").ok().flatten(),
+                "last_message": serde_json::Value::Null,
+                "last_message_at": serde_json::Value::Null,
+                "unread_count": 0,
+                "participants": []
+            });
+            serde_json::json!({ "message": msg, "conversation": conv })
+        })
+        .collect();
+
+    Ok(results)
+}
+
+// ─── UPLOAD ATTACHMENT ────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn cmd_upload_attachment(
+    token: String,
+    message_id: i32,
+    file_name: String,
+    file_path: String,
+    file_type: Option<String>,
+    file_size: Option<i64>,
+    thumbnail: Option<String>,
+    state: State<'_, SharedState>,
+) -> Result<AttachmentDto, String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    let _uid = extract_uid(&token, &jwt_secret)?;
+
+    let row = sqlx::query(
+        r#"
+        INSERT INTO attachments (message_id, file_name, file_path, file_type, file_size, thumbnail)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id
+        "#,
+    )
+    .bind(message_id)
+    .bind(&file_name)
+    .bind(&file_path)
+    .bind(&file_type)
+    .bind(file_size)
+    .bind(&thumbnail)
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| format!("Erreur DB : {e}"))?;
+
+    let id: i32 = row.try_get::<i32, _>("id").unwrap_or_default();
+
+    Ok(AttachmentDto { id, file_name, file_path, file_type, file_size, thumbnail })
+}
+
+// ─── GET WS PORT ──────────────────────────────────────────────────────────────
+
 #[tauri::command]
 pub async fn cmd_get_ws_port() -> u16 {
     ws::WS_PORT
 }
-
-// ─── List users ───────────────────────────────────────────────────────────────
-
-#[derive(Debug, Serialize, sqlx::FromRow)]
-#[serde(rename_all = "camelCase")]
-pub struct UserForChat {
-    pub id: i32,
-    pub username: String,
-    pub display_name: String,
-    pub email: Option<String>,
-    pub department: Option<String>,
-    pub avatar_path: Option<String>,
-    pub presence_status: String,
-}
-
-/// Return all active users (except current user), for use in new-group / new-DM pickers.
-#[tauri::command]
-pub async fn cmd_list_users(
-    token: String,
-    state: State<'_, SharedState>,
-) -> Result<Vec<UserForChat>, String> {
-    let (pool, jwt_secret) = {
-        let s = state.lock().await;
-        (
-            s.db_pool.clone().ok_or("Base de données non connectée")?,
-            s.jwt_secret.clone(),
-        )
-    };
-
-    let user_id = extract_user_id(&token, &jwt_secret)?;
-
-    /*let rows = sqlx::query(
-        r#"
-        SELECT u.id AS "id!: i32", u.username, u.display_name, u.email, u.department, u.avatar_path,
-               COALESCE(up.status, 'offline') AS presence_status
-        FROM users u
-        LEFT JOIN user_presence up ON up.user_id = u.id
-        WHERE u.is_active = true AND u.id <> $1
-        ORDER BY u.display_name ASC
-        "#,
-    )
-        .bind(user_id)
-        .fetch_all(&pool)
-        .await
-        .map_err(|e| format!("Erreur DB : {e}"))?;*/
-
-    /*let users = rows
-        .into_iter()
-        .map(|row| UserForChat {
-            id:              row.try_get::<i64, _>("id").unwrap_or_default(),
-            username:        row.try_get("username").unwrap_or_default(),
-            display_name:    row.try_get("display_name").unwrap_or_default(),
-            email:           row.try_get("email").ok().flatten(),
-            department:      row.try_get("department").ok().flatten(),
-            avatar_path:     row.try_get("avatar_path").ok().flatten(),
-            presence_status: row.try_get("presence_status").unwrap_or_else(|_| "offline".into()),
-        })
-        .collect();
-
-    Ok(users)*/
-
-    let users: Vec<UserForChat> = sqlx::query_as::<_, UserForChat>(
-        r#"
-    SELECT
-        u.id,
-        u.username,
-        u.display_name,
-        u.email,
-        u.department,
-        u.avatar_path,
-        COALESCE(up.status, 'offline') AS presence_status
-    FROM users u
-    LEFT JOIN user_presence up ON up.user_id = u.id
-    WHERE u.is_active = true AND u.id <> $1
-    ORDER BY u.display_name ASC
-    "#,
-    )
-        .bind(user_id)
-        .fetch_all(&pool)
-        .await
-        .map_err(|e| format!("Erreur DB : {e}"))?;
-
-    Ok(users)
-}
-
-// ─── Create group conversation ────────────────────────────────────────────────
-
-/// Create a new group conversation.
-/// `member_ids` should NOT include the creator — they are added automatically.
-#[tauri::command]
-pub async fn cmd_create_group_conversation(
-    token: String,
-    name: String,
-    description: String,
-    member_ids: Vec<i32>,
-    state: State<'_, SharedState>,
-) -> Result<i64, String> {
-    let (pool, jwt_secret) = {
-        let s = state.lock().await;
-        (
-            s.db_pool.clone().ok_or("Base de données non connectée")?,
-            s.jwt_secret.clone(),
-        )
-    };
-
-    let user_id = extract_user_id(&token, &jwt_secret)?;
-
-    if name.trim().is_empty() {
-        return Err("Le nom du groupe est requis".to_string());
-    }
-
-    // Insert the group
-    let group_row = sqlx::query(
-        "INSERT INTO groups (name, description, created_by) VALUES ($1, $2, $3) RETURNING id",
-    )
-        .bind(name.trim())
-        .bind(if description.is_empty() { None } else { Some(description.as_str()) })
-        .bind(user_id)
-        .fetch_one(&pool)
-        .await
-        .map_err(|e| format!("Erreur création groupe : {e}"))?;
-
-    //let group_id: i64 = group_row.try_get("id").unwrap_or_default();
-    let group_id: i32 = group_row.try_get("id")
-        .map_err(|e| format!("Erreur lecture id groupe : {e}"))?;
-
-    // Insert the conversation
-    let conv_row = sqlx::query(
-        "INSERT INTO conversations (type, group_id) VALUES ('group', $1) RETURNING id",
-    )
-        .bind(group_id)
-        .fetch_one(&pool)
-        .await
-        .map_err(|e| format!("Erreur création conversation : {e}"))?;
-
-    //let conv_id: i64 = conv_row.try_get("id").unwrap_or_default();
-    let conv_id: i32 = conv_row.try_get("id")
-        .map_err(|e| format!("Erreur lecture id conversation : {e}"))?;
-
-    // Add creator as first participant
-    sqlx::query(
-        "INSERT INTO conversation_participants (conversation_id, user_id) VALUES ($1, $2)",
-    )
-        .bind(conv_id)
-        .bind(user_id)
-        .execute(&pool)
-        .await
-        .map_err(|e| format!("Erreur ajout créateur : {e}"))?;
-
-    // Add remaining members (ignore duplicates)
-    for &mid in &member_ids {
-        if mid as i64 == user_id { continue; }
-        sqlx::query(
-            "INSERT INTO conversation_participants (conversation_id, user_id)
-             VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        )
-            .bind(conv_id)
-            .bind(mid)
-            .execute(&pool)
-            .await
-            .ok();
-    }
-
-    // Post a "system" message to mark group creation
-    sqlx::query(
-        "INSERT INTO messages (conversation_id, sender_id, content, message_type)
-         VALUES ($1, $2, 'Groupe créé', 'system')",
-    )
-        .bind(conv_id)
-        .bind(user_id)
-        .execute(&pool)
-        .await
-        .ok();
-
-    Ok(conv_id as i64)
-}
-
-/// Create (or return existing) direct conversation between two users.
-#[tauri::command]
-pub async fn cmd_create_direct_conversation(
-    token: String,
-    other_user_id: i32,  // ✅ i32 au lieu de i64
-    state: State<'_, SharedState>,
-) -> Result<i64, String> {
-    let (pool, jwt_secret) = {
-        let s = state.lock().await;
-        (
-            s.db_pool.clone().ok_or("Base de données non connectée")?,
-            s.jwt_secret.clone(),
-        )
-    };
-
-    let user_id = extract_user_id(&token, &jwt_secret)?;
-
-    // 🔍 Log pour diagnostiquer
-    tracing::info!("cmd_create_direct_conversation: user_id={}, other_user_id={}", user_id, other_user_id);
-
-    if other_user_id <= 0 {
-        return Err(format!("other_user_id invalide : {}", other_user_id));
-    }
-
-    // Vérifier que l'autre utilisateur existe
-    let target_exists: bool = sqlx::query_as::<_, (bool,)>(
-        "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND is_active = true)",
-    )
-        .bind(other_user_id)
-        .fetch_one(&pool)
-        .await
-        .map(|(b,)| b)
-        .unwrap_or(false);
-
-    if !target_exists {
-        return Err(format!("Utilisateur {} introuvable ou inactif", other_user_id));
-    }
-
-    // Conversation existante ?
-    let existing: Option<(i32,)> = sqlx::query_as(
-        r#"
-        SELECT c.id FROM conversations c
-        JOIN conversation_participants cp1 ON cp1.conversation_id = c.id AND cp1.user_id = $1
-        JOIN conversation_participants cp2 ON cp2.conversation_id = c.id AND cp2.user_id = $2
-        WHERE c.type = 'direct'
-        LIMIT 1
-        "#,
-    )
-        .bind(user_id as i32)
-        .bind(other_user_id)
-        .fetch_optional(&pool)
-        .await
-        .unwrap_or(None);
-
-    if let Some((id,)) = existing {
-        tracing::info!("Conversation directe existante trouvée : {}", id);
-        return Ok(id as i64);
-    }
-
-    // Créer la conversation
-    let row = sqlx::query(
-        "INSERT INTO conversations (type) VALUES ('direct') RETURNING id",
-    )
-        .fetch_one(&pool)
-        .await
-        .map_err(|e| format!("Erreur création conversation : {e}"))?;
-
-    let conv_id: i32 = row.try_get("id")
-        .map_err(|e| format!("Erreur lecture id conversation : {e}"))?;
-
-    tracing::info!("Nouvelle conversation créée : conv_id={}", conv_id);
-
-    // Ajouter les deux participants
-    sqlx::query(
-        "INSERT INTO conversation_participants (conversation_id, user_id) VALUES ($1, $2), ($1, $3)",
-    )
-        .bind(conv_id)
-        .bind(user_id)           // i64 du JWT — postgres accepte le cast implicite
-        .bind(other_user_id)     // i32 ✓
-        .execute(&pool)
-        .await
-        .map_err(|e| format!("Erreur ajout participants : {e}"))?;
-
-    Ok(conv_id as i64)
-}
-/*
-#[tauri::command]
-pub async fn cmd_create_direct_conversation(
-    token: String,
-    other_user_id: i64,
-    state: State<'_, SharedState>,
-) -> Result<i64, String> {
-    let (pool, jwt_secret) = {
-        let s = state.lock().await;
-        (
-            s.db_pool.clone().ok_or("Base de données non connectée")?,
-            s.jwt_secret.clone(),
-        )
-    };
-
-    let user_id = extract_user_id(&token, &jwt_secret)?;
-
-    // Check if a direct conversation already exists between these two users
-    let existing: Option<(i32,)> = sqlx::query_as( // ✅ i32
-        r#"
-        SELECT c.id FROM conversations c
-        JOIN conversation_participants cp1 ON cp1.conversation_id = c.id AND cp1.user_id = $1
-        JOIN conversation_participants cp2 ON cp2.conversation_id = c.id AND cp2.user_id = $2
-        WHERE c.type = 'direct'
-        LIMIT 1
-        "#,
-    )
-        .bind(user_id)
-        .bind(other_user_id)
-        .fetch_optional(&pool)
-        .await
-        .unwrap_or(None);
-
-    if let Some((id,)) = existing {
-        return Ok(id as i64); // ✅ cast pour le retour
-    }
-
-    // Create new direct conversation
-    let row = sqlx::query(
-        "INSERT INTO conversations (type) VALUES ('direct') RETURNING id",
-    )
-        .fetch_one(&pool)
-        .await
-        .map_err(|e| format!("Erreur création conversation : {e}"))?;
-
-    //let conv_id: i64 = row.try_get("id").unwrap_or_default();
-    let conv_id: i32 = row.try_get("id")  // ✅ i32
-        .map_err(|e| format!("Erreur lecture id conversation : {e}"))?;
-
-    sqlx::query(
-        "INSERT INTO conversation_participants (conversation_id, user_id) VALUES ($1, $2), ($1, $3)",
-    )
-        .bind(conv_id)
-        .bind(user_id)
-        .bind(other_user_id)
-        .execute(&pool)
-        .await
-        .map_err(|e| format!("Erreur DB : {e}"))?;
-
-    Ok(conv_id as i64) // ✅ cast pour le retour
-}
-*/

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useChatStore } from "@/store/chatStore";
 import { useAuthStore } from "@/store/authStore";
 import { wsService } from "@/services/wsService";
@@ -28,6 +28,7 @@ export function ChatPage() {
   const { id } = useParams<{ id: string }>();
   const convId = Number(id);
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuthStore();
 
   const {
@@ -43,6 +44,9 @@ export function ChatPage() {
     setCurrentConversation,
   } = useChatStore();
 
+  const hasMoreRef = useRef<Record<number, boolean>>({});
+  hasMoreRef.current = hasMoreMessages;
+
   const conversation = conversations.find((c) => c.id === convId);
   const messages = messagesMap[convId] ?? [];
   const typingUsers = (typingMap[convId] ?? []).filter((u) => u.userId !== user?.id);
@@ -54,6 +58,7 @@ export function ChatPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [scrolledToBottom, setScrolledToBottom] = useState(true);
   const [showPanel, setShowPanel] = useState<"group" | "user" | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
   const isInitialLoad = useRef(true);
 
   // Load messages on mount / conversation change
@@ -68,6 +73,65 @@ export function ChatPage() {
       setCurrentConversation(null);
     };
   }, [convId]);
+
+  // Handle ?highlight=<msgId> from global search navigation
+  useEffect(() => {
+    const highlightParam = searchParams.get("highlight");
+    if (!highlightParam) return;
+    const msgId = Number(highlightParam);
+    if (!msgId) return;
+
+    // Remove the param from URL without re-navigating
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("highlight");
+      return next;
+    }, { replace: true });
+
+    setHighlightedMessageId(msgId);
+
+    // Scroll to the message; if not yet in DOM, load older pages until found
+    let cancelled = false;
+    const scrollToHighlight = async () => {
+      // Give the initial loadMessages a moment to render
+      await new Promise((r) => setTimeout(r, 250));
+      if (cancelled) return;
+
+      // Try to find & scroll; if not found, keep loading older pages
+      let attempts = 0;
+      while (!cancelled) {
+        const el = document.getElementById(`message-${msgId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          setTimeout(() => {
+            if (!cancelled) setHighlightedMessageId(null);
+          }, 2500);
+          return;
+        }
+
+        attempts++;
+        // After a few quick retries (initial render lag), load more if possible
+        if (attempts >= 5) {
+          if (!hasMoreRef.current[convId]) break;
+          await loadMoreMessages(convId);
+          await new Promise((r) => setTimeout(r, 200));
+        } else {
+          await new Promise((r) => setTimeout(r, 150));
+        }
+      }
+      // Message not found even after loading all history — still highlight if it's in store
+      if (!cancelled) {
+        const el = document.getElementById(`message-${msgId}`);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+        setTimeout(() => {
+          if (!cancelled) setHighlightedMessageId(null);
+        }, 2500);
+      }
+    };
+
+    scrollToHighlight();
+    return () => { cancelled = true; };
+  }, [searchParams]);
 
   // Scroll to bottom on initial load or new incoming messages
   useEffect(() => {
@@ -320,8 +384,17 @@ export function ChatPage() {
           filteredMessages.map((msg, i) => {
             const showDate = shouldShowDateSeparator(filteredMessages[i - 1] ?? null, msg);
             const showName = isGroup && shouldShowSenderName(filteredMessages, i);
+            const isHighlighted = highlightedMessageId === msg.id;
             return (
-              <div key={msg.id}>
+              <div
+                key={msg.id}
+                id={`message-${msg.id}`}
+                style={{
+                  transition: "background-color 0.4s ease",
+                  backgroundColor: isHighlighted ? "var(--color-primary-500)" + "22" : "transparent",
+                  borderRadius: isHighlighted ? 8 : 0,
+                }}
+              >
                 {showDate && (
                   <DateSeparator label={formatDateSeparator(msg.createdAt)} />
                 )}

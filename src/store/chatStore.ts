@@ -1,61 +1,8 @@
 import { create } from "zustand";
-import { chatService, ConversationSummary, MessageDto, ParticipantInfo } from "@/services/chatService";
+import { chatService, isTauri, ConversationSummary, MessageDto, ParticipantInfo } from "@/services/chatService";
 import { wsService } from "@/services/wsService";
 import { useAuthStore } from "@/store/authStore";
 import { useNotificationStore } from "@/store/notificationStore";
-
-// ─── Mock auto-reply messages per conversation ────────────────────────────────
-const AUTO_REPLIES: Record<number, { userId: number; name: string; replies: string[] }> = {
-  1: {
-    userId: 2,
-    name: "Alice Martin",
-    replies: [
-      "D'accord, je prends note !",
-      "Merci pour l'information.",
-      "Parfait, on fait comme ça.",
-      "Je vous tiens au courant.",
-      "Très bien, à bientôt !",
-    ],
-  },
-  2: {
-    userId: 5,
-    name: "David Moreau",
-    replies: [
-      "Bien reçu, je m'en occupe.",
-      "Top, on avance !",
-      "OK pour moi.",
-      "Je valide de mon côté.",
-    ],
-  },
-  3: {
-    userId: 3,
-    name: "Bob Dupont",
-    replies: [
-      "Compris, merci !",
-      "Je reviens vers vous rapidement.",
-      "Noté !",
-      "Super, merci.",
-    ],
-  },
-  4: {
-    userId: 4,
-    name: "Claire Bernard",
-    replies: [
-      "C'est enregistré.",
-      "Je transmets à l'équipe.",
-      "Bien reçu.",
-    ],
-  },
-  5: {
-    userId: 4,
-    name: "Claire Bernard",
-    replies: [
-      "Parfait !",
-      "Je vous envoie les détails.",
-      "Très bien, merci.",
-    ],
-  },
-};
 
 // ─── Typing state ─────────────────────────────────────────────────────────────
 export interface TypingUser {
@@ -74,7 +21,6 @@ interface ChatState {
   isLoadingMessages: boolean;
   hasMoreMessages: Record<number, boolean>;
 
-  // Actions
   loadConversations: () => Promise<void>;
   loadMessages: (conversationId: number) => Promise<void>;
   loadMoreMessages: (conversationId: number) => Promise<void>;
@@ -85,7 +31,6 @@ interface ChatState {
   connectWs: () => void;
   disconnectWs: () => void;
   handleWsEvent: (event: import("@/services/wsService").WsEvent) => void;
-  // Group member management
   addGroupMember: (conversationId: number, userId: number) => Promise<void>;
   removeGroupMember: (conversationId: number, userId: number) => Promise<void>;
   updateGroupMemberRole: (conversationId: number, userId: number, role: "admin" | "member") => Promise<void>;
@@ -141,7 +86,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     const existing = state.messagesMap[conversationId] ?? [];
     if (existing.length === 0) return;
     const firstId = existing[0].id;
-
     try {
       const older = await chatService.getMessages(conversationId, 50, firstId);
       if (older.length === 0) {
@@ -169,7 +113,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   sendMessage: async (conversationId, content, replyToId) => {
     const currentUserId = useAuthStore.getState().user?.id ?? 1;
 
-    // Optimistic update
+    // Optimistic update with temp id
     const tempId = -Date.now();
     const tempMsg: MessageDto = {
       id: tempId,
@@ -193,10 +137,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         ...s.messagesMap,
         [conversationId]: [...(s.messagesMap[conversationId] ?? []), tempMsg],
       },
-    }));
-
-    // Update last message in conversation list
-    set((s) => ({
       conversations: s.conversations.map((c) =>
         c.id === conversationId
           ? { ...c, lastMessage: content, lastMessageAt: new Date().toISOString() }
@@ -207,7 +147,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     try {
       const sent = await chatService.sendMessage(conversationId, content, "text", replyToId);
 
-      // Replace temp message with real one
+      // Replace temp message with real persisted message
       set((s) => ({
         messagesMap: {
           ...s.messagesMap,
@@ -217,35 +157,49 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         },
       }));
 
-      // Simulate delivery/read receipts for own messages
-      wsService.simulateReceipts(conversationId, sent.id);
+      // Simulate delivery receipts only in web (mock) mode
+      if (!isTauri()) {
+        wsService.simulateReceipts(conversationId, sent.id);
+        // Simulate a reply from the other participant in web mode
+        const conv = get().conversations.find((c) => c.id === conversationId);
+        if (conv) {
+          const others = conv.participants.filter((p) => p.userId !== currentUserId);
+          if (others.length > 0) {
+            const other = others[0];
+            const mockReplies = [
+              "D'accord, je prends note !",
+              "Merci pour l'information.",
+              "Parfait, on fait comme ça.",
+              "Je vous tiens au courant.",
+              "Très bien, à bientôt !",
+              "Bien reçu, je m'en occupe.",
+              "OK pour moi.",
+            ];
+            const replyContent = mockReplies[Math.floor(Math.random() * mockReplies.length)];
+            const delay = 2000 + Math.random() * 3000;
 
-      // Simulate a reply from the other participant (in mock mode)
-      const autoReply = AUTO_REPLIES[conversationId];
-      if (autoReply) {
-        const replies = autoReply.replies;
-        const replyContent = replies[Math.floor(Math.random() * replies.length)];
-        const delay = 2000 + Math.random() * 3000;
+            setTimeout(() => {
+              wsService.simulateTyping(conversationId, other.userId, other.displayName, delay - 500);
+            }, 500);
 
-        setTimeout(() => {
-          wsService.simulateTyping(conversationId, autoReply.userId, autoReply.name, delay - 500);
-        }, 500);
-
-        wsService.simulateResponse(
-          conversationId,
-          autoReply.userId,
-          autoReply.name,
-          replyContent,
-          delay
-        );
+            wsService.simulateResponse(
+              conversationId,
+              other.userId,
+              other.displayName,
+              replyContent,
+              delay
+            );
+          }
+        }
       }
     } catch (e) {
-      // Mark as failed
+      console.error("sendMessage error:", e);
+      // Mark temp message as failed
       set((s) => ({
         messagesMap: {
           ...s.messagesMap,
           [conversationId]: (s.messagesMap[conversationId] ?? []).map((m) =>
-            m.id === tempId ? { ...m, status: "sent" } : m
+            m.id === tempId ? { ...m, status: "sent" as const } : m
           ),
         },
       }));
@@ -261,14 +215,13 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       ),
     }));
     await chatService.markAsRead(conversationId);
-
     set((s) => {
       const msgs = s.messagesMap[conversationId] ?? [];
       return {
         messagesMap: {
           ...s.messagesMap,
           [conversationId]: msgs.map((m) =>
-            m.senderId !== currentUserId ? { ...m, status: "read" } : m
+            m.senderId !== currentUserId ? { ...m, status: "read" as const } : m
           ),
         },
       };
@@ -278,7 +231,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   // ── Group member management ───────────────────────────────────────────────
   addGroupMember: async (conversationId, userId) => {
     await chatService.addGroupMember(conversationId, userId);
-    // Reload the updated conversation from the service
     const updatedConvs = await chatService.getConversations();
     set({ conversations: updatedConvs });
   },
@@ -291,7 +243,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
   updateGroupMemberRole: async (conversationId, userId, role) => {
     await chatService.updateGroupMemberRole(conversationId, userId, role);
-    // Update locally in store as well
     set((s) => ({
       conversations: s.conversations.map((conv) => {
         if (conv.id !== conversationId) return conv;
@@ -306,17 +257,13 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   },
 
   // ── Navigation ────────────────────────────────────────────────────────────
-  setCurrentConversation: (id) => {
-    set({ currentConversationId: id });
-  },
-
+  setCurrentConversation: (id) => set({ currentConversationId: id }),
   setSearchQuery: (q) => set({ searchQuery: q }),
 
   // ── WebSocket lifecycle ───────────────────────────────────────────────────
   connectWs: () => {
     const token = useAuthStore.getState().token;
     if (!token) return;
-
     if (wsUnsubscribe) wsUnsubscribe();
     wsUnsubscribe = wsService.on((event) => get().handleWsEvent(event));
     wsService.connect(token);
@@ -334,14 +281,14 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         const convId = event.conversation_id;
         const raw = event.message;
         const msg: MessageDto = {
-          id: raw.id,
-          conversationId: raw.conversation_id ?? raw.conversationId ?? convId,
-          senderId: raw.sender_id ?? raw.senderId ?? null,
+          id: Number(raw.id),
+          conversationId: Number(raw.conversation_id ?? raw.conversationId ?? convId),
+          senderId: raw.sender_id != null ? Number(raw.sender_id ?? raw.senderId) : null,
           senderName: raw.sender_name ?? raw.senderName ?? null,
           senderAvatar: raw.sender_avatar ?? raw.senderAvatar ?? null,
           content: raw.content ?? null,
           messageType: raw.message_type ?? raw.messageType ?? "text",
-          replyToId: raw.reply_to_id ?? raw.replyToId ?? null,
+          replyToId: raw.reply_to_id != null ? Number(raw.reply_to_id ?? raw.replyToId) : null,
           replyToContent: raw.reply_to_content ?? raw.replyToContent ?? null,
           isEdited: raw.is_edited ?? raw.isEdited ?? false,
           isDeleted: raw.is_deleted ?? raw.isDeleted ?? false,
@@ -350,8 +297,10 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           attachments: raw.attachments ?? [],
         };
 
-        // Persist incoming message to the mock DB
-        chatService.mockAppendMessage(msg);
+        // In web (mock) mode, persist incoming message to localStorage
+        if (!isTauri()) {
+          chatService.mockAppendMessage(msg);
+        }
 
         const currentUserId = useAuthStore.getState().user?.id ?? 1;
         const isOwn = msg.senderId === currentUserId;
@@ -400,8 +349,10 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
       case "message_status": {
         const { conversation_id, message_id, status } = event;
-        // Persist status change to mock DB
-        chatService.mockUpdateMessageStatus(conversation_id, message_id, status as MessageDto["status"]);
+        // In web (mock) mode, persist status change to localStorage
+        if (!isTauri()) {
+          chatService.mockUpdateMessageStatus(conversation_id, message_id, status as MessageDto["status"]);
+        }
         set((s) => {
           const msgs = s.messagesMap[conversation_id];
           if (!msgs) return s;
@@ -435,7 +386,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
               },
             };
           });
-
           if (typingTimers[key]) clearTimeout(typingTimers[key]);
           typingTimers[key] = setTimeout(() => {
             set((s) => ({

@@ -1,6 +1,6 @@
 /**
  * Chat service — wraps Tauri invoke calls for chat.
- * In web mode (no Tauri) delegates to the localStorage-backed mockDb.
+ * En mode web (pas de Tauri) délègue au mockDb localStorage.
  */
 
 import { useAuthStore } from "@/store/authStore";
@@ -20,13 +20,17 @@ import {
   getUserById,
 } from "./mockDb";
 
-// ─── Invoke helper ────────────────────────────────────────────────────────────
+// ─── Tauri detection ──────────────────────────────────────────────────────────
+
+export const isTauri = (): boolean =>
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+// ─── Tauri invoke helper ──────────────────────────────────────────────────────
+
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
   return tauriInvoke<T>(cmd, args);
 }
-
-const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -59,6 +63,11 @@ export interface ConversationSummary {
   participants: ParticipantInfo[];
 }
 
+export interface MessageSearchResult {
+  message: MessageDto;
+  conversation: ConversationSummary;
+}
+
 export interface AttachmentDto {
   id: number;
   fileName: string;
@@ -85,48 +94,48 @@ export interface MessageDto {
   attachments: AttachmentDto[];
 }
 
-// ─── Mappers ──────────────────────────────────────────────────────────────────
+// ─── Mappers (snake_case → camelCase) ─────────────────────────────────────────
 
 function mapConversation(raw: any): ConversationSummary {
   return {
-    id: raw.id,
+    id: Number(raw.id ?? raw.id),
     convType: raw.conv_type ?? raw.convType,
     name: raw.name,
     avatarPath: raw.avatar_path ?? raw.avatarPath ?? null,
     lastMessage: raw.last_message ?? raw.lastMessage ?? null,
     lastMessageAt: raw.last_message_at ?? raw.lastMessageAt ?? null,
-    unreadCount: raw.unread_count ?? raw.unreadCount ?? 0,
+    unreadCount: Number(raw.unread_count ?? raw.unreadCount ?? 0),
     participants: (raw.participants ?? []).map((p: any) => ({
-      userId: p.user_id ?? p.userId,
+      userId: Number(p.user_id ?? p.userId),
       displayName: p.display_name ?? p.displayName,
       avatarPath: p.avatar_path ?? p.avatarPath ?? null,
       presenceStatus: p.presence_status ?? p.presenceStatus ?? "offline",
-      role: p.role ?? "member",
+      role: (p.role ?? "member") as "admin" | "member",
     })),
   };
 }
 
 function mapMessage(raw: any): MessageDto {
   return {
-    id: raw.id,
-    conversationId: raw.conversation_id ?? raw.conversationId,
-    senderId: raw.sender_id ?? raw.senderId ?? null,
+    id: Number(raw.id),
+    conversationId: Number(raw.conversation_id ?? raw.conversationId),
+    senderId: raw.sender_id != null ? Number(raw.sender_id ?? raw.senderId) : null,
     senderName: raw.sender_name ?? raw.senderName ?? null,
     senderAvatar: raw.sender_avatar ?? raw.senderAvatar ?? null,
     content: raw.content ?? null,
     messageType: raw.message_type ?? raw.messageType ?? "text",
-    replyToId: raw.reply_to_id ?? raw.replyToId ?? null,
+    replyToId: raw.reply_to_id != null ? Number(raw.reply_to_id ?? raw.replyToId) : null,
     replyToContent: raw.reply_to_content ?? raw.replyToContent ?? null,
     isEdited: raw.is_edited ?? raw.isEdited ?? false,
     isDeleted: raw.is_deleted ?? raw.isDeleted ?? false,
     createdAt: raw.created_at ?? raw.createdAt ?? new Date().toISOString(),
     status: raw.status ?? "sent",
     attachments: (raw.attachments ?? []).map((a: any) => ({
-      id: a.id,
+      id: Number(a.id),
       fileName: a.file_name ?? a.fileName,
       filePath: a.file_path ?? a.filePath,
       fileType: a.file_type ?? a.fileType ?? null,
-      fileSize: a.file_size ?? a.fileSize ?? null,
+      fileSize: a.file_size != null ? Number(a.file_size ?? a.fileSize) : null,
       thumbnail: a.thumbnail ?? null,
     })),
   };
@@ -140,6 +149,8 @@ function currentUid(): number {
 
 export const chatService = {
 
+  // ── Conversations ───────────────────────────────────────────────────────────
+
   async getConversations(): Promise<ConversationSummary[]> {
     if (!isTauri()) {
       return dbLoadConversations(currentUid());
@@ -148,6 +159,8 @@ export const chatService = {
     const raw = await invoke<any[]>("cmd_get_conversations", { token });
     return raw.map(mapConversation);
   },
+
+  // ── Messages ────────────────────────────────────────────────────────────────
 
   async getMessages(conversationId: number, limit = 50, beforeId?: number): Promise<MessageDto[]> {
     if (!isTauri()) {
@@ -161,10 +174,15 @@ export const chatService = {
     }
     const token = useAuthStore.getState().token!;
     const raw = await invoke<any[]>("cmd_get_messages", {
-      token, conversationId, limit, beforeId: beforeId ?? null,
+      token,
+      conversationId,
+      limit,
+      beforeId: beforeId ?? null,
     });
     return raw.map(mapMessage);
   },
+
+  // ── Send message ─────────────────────────────────────────────────────────────
 
   async sendMessage(
     conversationId: number,
@@ -199,10 +217,16 @@ export const chatService = {
     }
     const token = useAuthStore.getState().token!;
     const raw = await invoke<any>("cmd_send_message", {
-      token, conversationId, content, messageType, replyToId: replyToId ?? null,
+      token,
+      conversationId,
+      content,
+      messageType,
+      replyToId: replyToId ?? null,
     });
     return mapMessage(raw);
   },
+
+  // ── Mark as read ─────────────────────────────────────────────────────────────
 
   async markAsRead(conversationId: number): Promise<void> {
     if (!isTauri()) {
@@ -211,6 +235,35 @@ export const chatService = {
     }
     const token = useAuthStore.getState().token!;
     await invoke("cmd_mark_as_read", { token, conversationId });
+  },
+
+  // ── Search ──────────────────────────────────────────────────────────────────
+
+  async searchAllMessages(query: string, conversations: ConversationSummary[]): Promise<MessageSearchResult[]> {
+    if (!isTauri()) {
+      const uid = currentUid();
+      const q = query.toLowerCase().trim();
+      if (!q) return [];
+      const results: MessageSearchResult[] = [];
+      for (const conv of conversations) {
+        const msgs = dbGetMessages(uid, conv.id);
+        for (const m of msgs) {
+          if (m.content?.toLowerCase().includes(q)) {
+            results.push({ message: m, conversation: conv });
+          }
+        }
+      }
+      results.sort((a, b) =>
+        new Date(b.message.createdAt).getTime() - new Date(a.message.createdAt).getTime()
+      );
+      return results.slice(0, 50);
+    }
+    const token = useAuthStore.getState().token!;
+    const raw = await invoke<any[]>("cmd_search_all_messages", { token, query });
+    return raw.map((r) => ({
+      message: mapMessage(r.message),
+      conversation: mapConversation(r.conversation),
+    }));
   },
 
   async searchMessages(conversationId: number, query: string): Promise<MessageDto[]> {
@@ -225,6 +278,8 @@ export const chatService = {
     return raw.map(mapMessage);
   },
 
+  // ── Users ────────────────────────────────────────────────────────────────────
+
   async listUsers(): Promise<UserForChat[]> {
     if (!isTauri()) {
       return SYSTEM_USERS;
@@ -232,7 +287,7 @@ export const chatService = {
     const token = useAuthStore.getState().token!;
     const raw = await invoke<any[]>("cmd_list_users", { token });
     return raw.map((u) => ({
-      id: u.id,
+      id: Number(u.id),
       username: u.username,
       displayName: u.display_name ?? u.displayName,
       email: u.email ?? null,
@@ -241,6 +296,8 @@ export const chatService = {
       presenceStatus: u.presence_status ?? u.presenceStatus ?? "offline",
     }));
   },
+
+  // ── Create conversations ──────────────────────────────────────────────────────
 
   async createDirectConversation(otherUserId: number): Promise<number> {
     if (!isTauri()) {
@@ -278,16 +335,15 @@ export const chatService = {
     const token = useAuthStore.getState().token!;
     const safeId = Math.trunc(otherUserId);
     if (!safeId || safeId <= 0) throw new Error(`ID utilisateur invalide : ${otherUserId}`);
-    return invoke<number>("cmd_create_direct_conversation", { token, otherUserId: safeId });
+    return Number(await invoke<number>("cmd_create_direct_conversation", { token, otherUserId: safeId }));
   },
 
   async createGroupConversation(name: string, description: string, memberIds: number[]): Promise<number> {
     if (!isTauri()) {
       const uid = currentUid();
       const convId = nextId();
-
       const participants: ParticipantInfo[] = [
-        { userId: uid, displayName: "Moi", avatarPath: null, presenceStatus: "online" },
+        { userId: uid, displayName: "Moi", avatarPath: null, presenceStatus: "online", role: "admin" },
         ...memberIds.map((mid) => {
           const u = getUserById(mid);
           return {
@@ -295,10 +351,10 @@ export const chatService = {
             displayName: u?.displayName ?? `User ${mid}`,
             avatarPath: null,
             presenceStatus: (u?.presenceStatus ?? "offline") as ParticipantInfo["presenceStatus"],
+            role: "member" as "admin" | "member",
           };
         }),
       ];
-
       const newConv: ConversationSummary = {
         id: convId,
         convType: "group",
@@ -314,8 +370,10 @@ export const chatService = {
       return convId;
     }
     const token = useAuthStore.getState().token!;
-    return invoke<number>("cmd_create_group_conversation", { token, name, description, memberIds });
+    return Number(await invoke<number>("cmd_create_group_conversation", { token, name, description, memberIds }));
   },
+
+  // ── Group member management ──────────────────────────────────────────────────
 
   async addGroupMember(conversationId: number, userId: number): Promise<void> {
     if (!isTauri()) {
@@ -326,6 +384,7 @@ export const chatService = {
         displayName: u?.displayName ?? `User ${userId}`,
         avatarPath: null,
         presenceStatus: (u?.presenceStatus ?? "offline") as ParticipantInfo["presenceStatus"],
+        role: "member",
       };
       dbAddGroupMember(uid, conversationId, member);
       return;
@@ -352,13 +411,15 @@ export const chatService = {
     await invoke("cmd_update_member_role", { token, conversationId, userId, role });
   },
 
-  /** Used by wsService in mock mode to update message status in DB */
+  // ── Mock-only helpers (web mode only — no-ops in Tauri) ──────────────────────
+
   mockUpdateMessageStatus(conversationId: number, messageId: number, status: MessageDto["status"]): void {
+    if (isTauri()) return;
     dbUpdateMessageStatus(currentUid(), conversationId, messageId, status);
   },
 
-  /** Used by wsService in mock mode to append an incoming message to the DB */
   mockAppendMessage(msg: MessageDto): void {
+    if (isTauri()) return;
     dbAddMessage(currentUid(), msg);
   },
 };

@@ -82,9 +82,13 @@ pub fn run() {
             commands::chat::cmd_send_message,
             commands::chat::cmd_mark_as_read,
             commands::chat::cmd_search_messages,
+            commands::chat::cmd_search_all_messages,
             commands::chat::cmd_upload_attachment,
             commands::chat::cmd_create_direct_conversation,
             commands::chat::cmd_create_group_conversation,
+            commands::chat::cmd_add_group_member,
+            commands::chat::cmd_remove_group_member,
+            commands::chat::cmd_update_member_role,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Enterprise Chat");
