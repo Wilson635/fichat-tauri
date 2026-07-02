@@ -239,8 +239,7 @@ async fn dispatch_client_event(
     pool: &sqlx::PgPool,
 ) {
     match event {
-        ClientEvent::Typing { conversation_id } | ClientEvent::StopTyping { conversation_id } => {
-            let is_typing = matches!(event, ClientEvent::Typing { .. });
+        ClientEvent::Typing { conversation_id } => {
             let name = get_display_name(pool, sender_id).await;
             let participants = get_participants(pool, conversation_id).await;
             hub.broadcast_to_users(
@@ -249,7 +248,21 @@ async fn dispatch_client_event(
                     conversation_id,
                     user_id: sender_id,
                     display_name: name,
-                    is_typing,
+                    is_typing: true,
+                },
+            )
+            .await;
+        }
+        ClientEvent::StopTyping { conversation_id } => {
+            let name = get_display_name(pool, sender_id).await;
+            let participants = get_participants(pool, conversation_id).await;
+            hub.broadcast_to_users(
+                &participants,
+                &ServerEvent::Typing {
+                    conversation_id,
+                    user_id: sender_id,
+                    display_name: name,
+                    is_typing: false,
                 },
             )
             .await;

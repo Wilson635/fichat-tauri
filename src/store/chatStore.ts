@@ -160,40 +160,41 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         },
       }));
 
-      // Simulate delivery receipts only in web (mock) mode
+      // In web (mock) mode: broadcast to other tabs + simulate receipts
       if (!isTauri()) {
+        // ── Broadcast to other browser tabs (cross-user real-time) ──────────
+        wsService.broadcastEvent({
+          type: "new_message",
+          conversation_id: conversationId,
+          message: {
+            id: sent.id,
+            conversation_id: conversationId,
+            conversationId,
+            sender_id: sent.senderId,
+            senderId: sent.senderId,
+            sender_name: sent.senderName,
+            senderName: sent.senderName,
+            sender_avatar: sent.senderAvatar,
+            senderAvatar: sent.senderAvatar,
+            content: sent.content,
+            message_type: sent.messageType,
+            messageType: sent.messageType,
+            reply_to_id: sent.replyToId,
+            replyToId: sent.replyToId,
+            reply_to_content: sent.replyToContent,
+            replyToContent: sent.replyToContent,
+            is_edited: sent.isEdited,
+            isEdited: sent.isEdited,
+            is_deleted: sent.isDeleted,
+            isDeleted: sent.isDeleted,
+            created_at: sent.createdAt,
+            createdAt: sent.createdAt,
+            status: sent.status,
+            attachments: sent.attachments,
+          },
+        });
+
         wsService.simulateReceipts(conversationId, sent.id);
-        // Simulate a reply from the other participant in web mode
-        const conv = get().conversations.find((c) => c.id === conversationId);
-        if (conv) {
-          const others = conv.participants.filter((p) => p.userId !== currentUserId);
-          if (others.length > 0) {
-            const other = others[0];
-            const mockReplies = [
-              "D'accord, je prends note !",
-              "Merci pour l'information.",
-              "Parfait, on fait comme ça.",
-              "Je vous tiens au courant.",
-              "Très bien, à bientôt !",
-              "Bien reçu, je m'en occupe.",
-              "OK pour moi.",
-            ];
-            const replyContent = mockReplies[Math.floor(Math.random() * mockReplies.length)];
-            const delay = 2000 + Math.random() * 3000;
-
-            setTimeout(() => {
-              wsService.simulateTyping(conversationId, other.userId, other.displayName, delay - 500);
-            }, 500);
-
-            wsService.simulateResponse(
-                conversationId,
-                other.userId,
-                other.displayName,
-                replyContent,
-                delay
-            );
-          }
-        }
       }
     } catch (e) {
       console.error("sendMessage error:", e);
@@ -382,6 +383,16 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   // ── Handle WebSocket events ───────────────────────────────────────────────
   handleWsEvent: (event) => {
     switch (event.type) {
+      case "auth_ok": {
+        // WS (re)connecté — on recharge les conversations et les messages de la conv active
+        get().loadConversations();
+        const activeCid = get().currentConversationId;
+        if (activeCid) {
+          get().loadMessages(activeCid);
+        }
+        break;
+      }
+
       case "new_message": {
         const convId = event.conversation_id;
         const raw = event.message;

@@ -1,11 +1,32 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Outlet } from "react-router-dom";
 import { Sidebar } from "@/components/Sidebar";
 import { PriorityNotificationModal } from "@/components/PriorityNotificationModal";
 import { GlobalSearchModal } from "@/components/GlobalSearchModal";
+import { useChatStore } from "@/store/chatStore";
+import { useNotificationStore } from "@/store/notificationStore";
+import { requestNotificationPermission } from "@/services/notificationService";
+import { isTauri } from "@/services/chatService";
 
 export function MainLayout() {
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
+  const { connectWs, disconnectWs } = useChatStore();
+  const { notifGranted, setNotifGranted } = useNotificationStore();
+
+  useEffect(() => {
+    connectWs();
+    return () => disconnectWs();
+  }, []);
+
+  useEffect(() => {
+    if (!notifGranted) {
+      if (isTauri()) {
+        requestNotificationPermission().then(setNotifGranted);
+      } else if ("Notification" in window && Notification.permission === "granted") {
+        setNotifGranted(true);
+      }
+    }
+  }, [notifGranted]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

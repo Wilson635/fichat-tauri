@@ -1,5 +1,13 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import {
+  sendToastNotification,
+  sendPriorityNotification,
+  setBadgeCount,
+  playNotificationSound,
+} from "@/services/notificationService";
+
+export type NotifSoundType = "message" | "priority" | "none";
 
 export interface NotificationItem {
   id: string;
@@ -14,16 +22,18 @@ export interface NotificationItem {
 
 export interface ConvNotifPrefs {
   enabled: boolean;
-  sound: boolean;
+  sound: NotifSoundType;
+  priority: boolean;
 }
 
 interface NotificationState {
   items: NotificationItem[];
   convPrefs: Record<number, ConvNotifPrefs>;
+  globalSound: NotifSoundType;
   dndEnabled: boolean;
   dndStartHour: number;
   dndEndHour: number;
-  permissionGranted: boolean;
+  notifGranted: boolean;
   pendingPriority: NotificationItem | null;
 
   addNotification: (item: Omit<NotificationItem, "id" | "isRead">) => void;
@@ -32,9 +42,17 @@ interface NotificationState {
   clearAll: () => void;
   setConvPrefs: (convId: number, prefs: Partial<ConvNotifPrefs>) => void;
   setDnd: (enabled: boolean, startHour?: number, endHour?: number) => void;
-  setPermission: (granted: boolean) => void;
+  setGlobalSound: (sound: NotifSoundType) => void;
+  setNotifGranted: (granted: boolean) => void;
   dismissPriority: () => void;
   unreadCount: () => number;
+}
+
+function isInDndRange(startHour: number, endHour: number): boolean {
+  const h = new Date().getHours();
+  return startHour > endHour
+    ? h >= startHour || h < endHour
+    : h >= startHour && h < endHour;
 }
 
 export const useNotificationStore = create<NotificationState>()(
@@ -42,100 +60,96 @@ export const useNotificationStore = create<NotificationState>()(
     (set, get) => ({
       items: [],
       convPrefs: {},
+      globalSound: "message",
       dndEnabled: false,
       dndStartHour: 22,
       dndEndHour: 8,
-      permissionGranted: false,
+      notifGranted: false,
       pendingPriority: null,
 
       addNotification: (item) => {
         const state = get();
         const prefs = state.convPrefs[item.conversationId];
+
         if (prefs && !prefs.enabled) return;
 
-        const now = new Date();
-        if (state.dndEnabled) {
-          const h = now.getHours();
-          const { dndStartHour: s, dndEndHour: e } = state;
-          const inDnd = s > e ? h >= s || h < e : h >= s && h < e;
-          if (inDnd && !item.isPriority) return;
-        }
+        const inDnd =
+          state.dndEnabled &&
+          isInDndRange(state.dndStartHour, state.dndEndHour);
+
+        if (inDnd && !item.isPriority) return;
+
+        const isPriority = item.isPriority || prefs?.priority === true;
 
         const newItem: NotificationItem = {
           ...item,
+          isPriority,
           id: `notif-${Date.now()}-${Math.random()}`,
           isRead: false,
         };
 
         set((s) => ({
           items: [newItem, ...s.items].slice(0, 100),
-          pendingPriority: item.isPriority ? newItem : s.pendingPriority,
+          pendingPriority: isPriority ? newItem : s.pendingPriority,
         }));
 
-        if (state.permissionGranted && "Notification" in window && Notification.permission === "granted") {
-          const n = new Notification(
-            item.isPriority ? `🚨 Message prioritaire — ${item.conversationName}` : item.conversationName,
-            {
-              body: `${item.senderName}: ${item.content}`,
-              icon: "/favicon.ico",
-              tag: `conv-${item.conversationId}`,
-            }
-          );
-          n.onclick = () => {
-            window.focus();
-            window.location.hash = `/conversations/${item.conversationId}`;
-          };
+        const soundType: NotifSoundType =
+          prefs?.sound ?? state.globalSound;
+
+        if (!inDnd) {
+          playNotificationSound(soundType);
         }
 
-        if (prefs?.sound !== false) {
-          try {
-            const ctx = new AudioContext();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.frequency.value = item.isPriority ? 880 : 440;
-            gain.gain.setValueAtTime(0.1, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-            osc.start(ctx.currentTime);
-            osc.stop(ctx.currentTime + 0.3);
-          } catch {
-            // Audio context may be unavailable
-          }
+        // Toujours tenter d'envoyer — le service gère permission et fallback
+        if (isPriority) {
+          sendPriorityNotification({
+            title: `🚨 Message prioritaire — ${item.conversationName}`,
+            body: `${item.senderName}: ${item.content}`,
+          }).catch(() => {});
+        } else {
+          sendToastNotification({
+            title: item.conversationName,
+            body: `${item.senderName}: ${item.content}`,
+            conversationId: item.conversationId,
+          }).catch(() => {});
         }
+
+        const total = [newItem, ...state.items].filter((i) => !i.isRead).length;
+        setBadgeCount(total).catch(() => {});
       },
 
-      markAllRead: () =>
-        set((s) => ({ items: s.items.map((i) => ({ ...i, isRead: true })) })),
+      markAllRead: () => {
+        set((s) => ({ items: s.items.map((i) => ({ ...i, isRead: true })) }));
+        setBadgeCount(0).catch(() => {});
+      },
 
-      markRead: (id) =>
-        set((s) => ({ items: s.items.map((i) => i.id === id ? { ...i, isRead: true } : i) })),
-
-      clearAll: () => set({ items: [] }),
-
-      /*setConvPrefs: (convId, prefs) =>
+      markRead: (id) => {
         set((s) => ({
-          convPrefs: {
-            ...s.convPrefs,
-            [convId]: { enabled: true, sound: true, ...(s.convPrefs[convId] ?? {}), ...prefs },
-          },
-        })),*/
+          items: s.items.map((i) => (i.id === id ? { ...i, isRead: true } : i)),
+        }));
+        const count = get().items.filter((i) => !i.isRead).length;
+        setBadgeCount(count).catch(() => {});
+      },
 
-        setConvPrefs: (convId, prefs) =>
-            set((s) => {
-                // On récupère les préférences existantes ou les valeurs par défaut globales de l'appli
-                const existing = s.convPrefs[convId] ?? { enabled: true, sound: true };
+      clearAll: () => {
+        set({ items: [] });
+        setBadgeCount(0).catch(() => {});
+      },
 
-                return {
-                    convPrefs: {
-                        ...s.convPrefs,
-                        [convId]: {
-                            ...existing,
-                            ...prefs,
-                        } as ConvNotifPrefs,
-                    },
-                };
-            }),
+      setConvPrefs: (convId, prefs) =>
+        set((s) => {
+          const existing: ConvNotifPrefs = s.convPrefs[convId] ?? {
+            enabled: true,
+            sound: "message",
+            priority: false,
+          };
+          return {
+            convPrefs: {
+              ...s.convPrefs,
+              [convId]: { ...existing, ...prefs },
+            },
+          };
+        }),
 
       setDnd: (dndEnabled, dndStartHour, dndEndHour) =>
         set((s) => ({
@@ -144,7 +158,9 @@ export const useNotificationStore = create<NotificationState>()(
           dndEndHour: dndEndHour ?? s.dndEndHour,
         })),
 
-      setPermission: (permissionGranted) => set({ permissionGranted }),
+      setGlobalSound: (globalSound) => set({ globalSound }),
+
+      setNotifGranted: (notifGranted) => set({ notifGranted }),
 
       dismissPriority: () => set({ pendingPriority: null }),
 
@@ -155,10 +171,11 @@ export const useNotificationStore = create<NotificationState>()(
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({
         convPrefs: s.convPrefs,
+        globalSound: s.globalSound,
         dndEnabled: s.dndEnabled,
         dndStartHour: s.dndStartHour,
         dndEndHour: s.dndEndHour,
-        permissionGranted: s.permissionGranted,
+        notifGranted: s.notifGranted,
       }),
     }
   )

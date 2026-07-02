@@ -1,7 +1,11 @@
+import { useState } from "react";
 import { useThemeStore, AccentColor, FontSize, ChatBackground } from "@/store/themeStore";
 import { useAuthStore } from "@/store/authStore";
 import { authService } from "@/services/authService";
 import { useNavigate } from "react-router-dom";
+import { useNotificationStore, NotifSoundType } from "@/store/notificationStore";
+import { requestNotificationPermission, playNotificationSound, sendTestNotification } from "@/services/notificationService";
+import { isTauri } from "@/services/chatService";
 
 const accentColors: { id: AccentColor; label: string; hex: string }[] = [
   { id: "green",  label: "WhatsApp",  hex: "#00a884" },
@@ -130,6 +134,190 @@ function ChatPreview() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── Notification settings sub-component ─────────────────────────────────────
+const soundOptions: { id: NotifSoundType; label: string }[] = [
+  { id: "message",  label: "Son doux" },
+  { id: "priority", label: "Son urgent" },
+  { id: "none",     label: "Silence" },
+];
+
+function NotificationSettings() {
+  const {
+    globalSound, dndEnabled, dndStartHour, dndEndHour,
+    notifGranted,
+    setGlobalSound, setDnd, setNotifGranted,
+  } = useNotificationStore();
+  const [requesting, setRequesting] = useState(false);
+  const [testState, setTestState] = useState<"idle" | "sending" | "ok" | "error">("idle");
+  const [testError, setTestError] = useState<string>("");
+
+  const handleRequestPerm = async () => {
+    setRequesting(true);
+    const ok = await requestNotificationPermission();
+    setNotifGranted(ok);
+    setRequesting(false);
+  };
+
+  const handleTest = async () => {
+    setTestState("sending");
+    setTestError("");
+    const result = await sendTestNotification();
+    if (result.success) {
+      setTestState("ok");
+      setTimeout(() => setTestState("idle"), 3000);
+    } else {
+      setTestState("error");
+      setTestError(result.error ?? "Échec inconnu");
+      setTimeout(() => setTestState("idle"), 5000);
+    }
+  };
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  return (
+    <section>
+      <h2
+        className="text-xs font-semibold uppercase tracking-wider mb-4"
+        style={{ color: "var(--color-text-muted)" }}
+      >
+        Notifications
+      </h2>
+      <div
+        className="rounded-2xl overflow-hidden border divide-y"
+        style={{
+          backgroundColor: "var(--color-surface-secondary)",
+          borderColor: "var(--color-border)",
+        }}
+      >
+        {/* Permission */}
+        <div className="px-4 py-3 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium" style={{ color: "var(--color-text-primary)" }}>
+              {isTauri() ? "Notifications Windows natives" : "Notifications navigateur"}
+            </p>
+            <p className="text-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+              {notifGranted ? "Activées ✓" : "Cliquez pour autoriser"}
+            </p>
+          </div>
+          {notifGranted ? (
+            <span className="text-xs px-2.5 py-1 rounded-full font-medium" style={{ backgroundColor: "rgba(34,197,94,0.1)", color: "#16a34a" }}>
+              Actives
+            </span>
+          ) : (
+            <button
+              onClick={handleRequestPerm}
+              disabled={requesting}
+              className="text-xs px-3 py-1.5 rounded-lg font-medium text-white transition-opacity"
+              style={{ backgroundColor: "var(--color-primary-500)", opacity: requesting ? 0.6 : 1 }}
+            >
+              {requesting ? "..." : "Autoriser"}
+            </button>
+          )}
+        </div>
+
+        {/* Bouton Test */}
+        <div className="px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium" style={{ color: "var(--color-text-primary)" }}>
+              Tester les notifications
+            </p>
+            <p className="text-xs mt-0.5 truncate" style={{ color: testState === "error" ? "#ef4444" : "var(--color-text-muted)" }}>
+              {testState === "idle" && "Envoie une notification de test maintenant"}
+              {testState === "sending" && "Envoi en cours…"}
+              {testState === "ok" && "✓ Notification envoyée avec succès !"}
+              {testState === "error" && `Erreur : ${testError}`}
+            </p>
+          </div>
+          <button
+            onClick={handleTest}
+            disabled={testState === "sending"}
+            className="shrink-0 text-xs px-3 py-1.5 rounded-lg font-medium border-2 transition-all"
+            style={{
+              borderColor: testState === "ok" ? "#16a34a" : testState === "error" ? "#ef4444" : "var(--color-primary-500)",
+              color: testState === "ok" ? "#16a34a" : testState === "error" ? "#ef4444" : "var(--color-primary-500)",
+              backgroundColor: "transparent",
+              opacity: testState === "sending" ? 0.6 : 1,
+            }}
+          >
+            {testState === "sending" ? "…" : testState === "ok" ? "✓ OK" : testState === "error" ? "✗ Échec" : "Tester"}
+          </button>
+        </div>
+
+        {/* Son global */}
+        <div className="px-4 py-3">
+          <p className="text-sm font-medium mb-2" style={{ color: "var(--color-text-primary)" }}>Son de notification</p>
+          <div className="flex gap-2">
+            {soundOptions.map((opt) => (
+              <button
+                key={opt.id}
+                onClick={() => {
+                  setGlobalSound(opt.id);
+                  if (opt.id !== "none") playNotificationSound(opt.id);
+                }}
+                className="flex-1 py-2 rounded-xl text-xs font-medium border-2 transition-all"
+                style={{
+                  backgroundColor: globalSound === opt.id ? "var(--color-primary-500)" : "var(--color-surface)",
+                  color: globalSound === opt.id ? "white" : "var(--color-text-secondary)",
+                  borderColor: globalSound === opt.id ? "var(--color-primary-500)" : "transparent",
+                }}
+              >
+                {opt.id === "none" ? "🔇" : opt.id === "priority" ? "🔔" : "🔉"} {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Ne pas déranger */}
+        <div className="px-4 py-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium" style={{ color: "var(--color-text-primary)" }}>Ne pas déranger</p>
+              <p className="text-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+                Silencieux sauf messages prioritaires
+              </p>
+            </div>
+            <button
+              onClick={() => setDnd(!dndEnabled, dndStartHour, dndEndHour)}
+              className="relative w-11 h-6 rounded-full transition-colors shrink-0"
+              style={{ backgroundColor: dndEnabled ? "var(--color-primary-500)" : "var(--color-border)" }}
+            >
+              <div
+                className="w-5 h-5 bg-white rounded-full absolute top-0.5 shadow-sm transition-transform"
+                style={{ transform: dndEnabled ? "translateX(21px)" : "translateX(2px)" }}
+              />
+            </button>
+          </div>
+
+          {dndEnabled && (
+            <div
+              className="flex items-center gap-2 text-sm p-3 rounded-xl"
+              style={{ backgroundColor: "var(--color-surface)" }}
+            >
+              <span style={{ color: "var(--color-text-muted)" }}>De</span>
+              <input
+                type="number" min={0} max={23}
+                value={pad(dndStartHour)}
+                onChange={(e) => setDnd(dndEnabled, Number(e.target.value), dndEndHour)}
+                className="w-14 text-center rounded-lg border px-2 py-1 text-sm font-mono"
+                style={{ backgroundColor: "var(--color-surface-secondary)", borderColor: "var(--color-border)", color: "var(--color-text-primary)" }}
+              />
+              <span style={{ color: "var(--color-text-muted)" }}>h à</span>
+              <input
+                type="number" min={0} max={23}
+                value={pad(dndEndHour)}
+                onChange={(e) => setDnd(dndEnabled, dndStartHour, Number(e.target.value))}
+                className="w-14 text-center rounded-lg border px-2 py-1 text-sm font-mono"
+                style={{ backgroundColor: "var(--color-surface-secondary)", borderColor: "var(--color-border)", color: "var(--color-text-primary)" }}
+              />
+              <span style={{ color: "var(--color-text-muted)" }}>h</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -406,6 +594,9 @@ export function SettingsPage() {
               <ChatPreview />
             </div>
           </section>
+
+          {/* ── Notifications ───────────────────────────────────────────── */}
+          <NotificationSettings />
 
           {/* ── Compte ──────────────────────────────────────────────────── */}
           <section>

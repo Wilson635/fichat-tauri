@@ -67,10 +67,16 @@ export function ChatPage() {
   const [previewAttachment, setPreviewAttachment] = useState<AttachmentDto | null>(null);
   const isInitialLoad = useRef(true);
 
+  // ── Unread-while-scrolled-up bubble (WhatsApp style) ───────────────────────
+  const [unreadWhileScrolledUp, setUnreadWhileScrolledUp] = useState(0);
+  const prevMsgCountRef = useRef(0);
+
   // Load messages on mount / conversation change
   useEffect(() => {
     if (!convId) return;
     isInitialLoad.current = true;
+    setUnreadWhileScrolledUp(0);
+    prevMsgCountRef.current = 0;
     setCurrentConversation(convId);
     loadMessages(convId).then(() => {
       markAsRead(convId);
@@ -79,6 +85,24 @@ export function ChatPage() {
       setCurrentConversation(null);
     };
   }, [convId]);
+
+  // Detect new incoming messages while scrolled up → increment unread bubble
+  useEffect(() => {
+    const prev = prevMsgCountRef.current;
+    const curr = messages.length;
+    if (prev === 0 || isInitialLoad.current) {
+      prevMsgCountRef.current = curr;
+      return;
+    }
+    if (curr > prev) {
+      const newMsgs = messages.slice(prev);
+      const hasIncoming = newMsgs.some((m) => m.senderId !== (user?.id ?? -1));
+      if (!scrolledToBottom && hasIncoming) {
+        setUnreadWhileScrolledUp((n) => n + newMsgs.filter((m) => m.senderId !== (user?.id ?? -1)).length);
+      }
+    }
+    prevMsgCountRef.current = curr;
+  }, [messages.length]);
 
   // Handle ?highlight=<msgId> from global search navigation
   useEffect(() => {
@@ -149,6 +173,7 @@ export function ChatPage() {
     }
     if (scrolledToBottom) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      setUnreadWhileScrolledUp(0);
     }
   }, [messages.length, typingUsers.length]);
 
@@ -158,6 +183,7 @@ export function ChatPage() {
     if (!el) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
     setScrolledToBottom(atBottom);
+    if (atBottom) setUnreadWhileScrolledUp(0);
     if (el.scrollTop < 60 && hasMoreMessages[convId] && !isLoadingMessages) {
       const prevHeight = el.scrollHeight;
       loadMoreMessages(convId).then(() => {
@@ -465,16 +491,32 @@ export function ChatPage() {
             <div ref={bottomRef} />
           </div>
 
-          {/* ── Scroll-to-bottom fab ────────────────────────────────── */}
+          {/* ── Scroll-to-bottom fab + unread bubble (WhatsApp style) ─── */}
           {!scrolledToBottom && (
               <button
-                  onClick={() => bottomRef.current?.scrollIntoView({ behavior: "smooth" })}
-                  className="absolute bottom-20 right-6 w-10 h-10 rounded-full shadow-lg flex items-center justify-center transition-all"
-                  style={{ backgroundColor: "var(--color-surface)", color: "var(--color-primary-500)", border: "1px solid var(--color-border)", zIndex: 10 }}
+                  onClick={() => {
+                    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+                    setUnreadWhileScrolledUp(0);
+                  }}
+                  className="absolute bottom-20 right-6 shadow-lg flex flex-col items-center transition-all"
+                  style={{ zIndex: 10 }}
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
+                {unreadWhileScrolledUp > 0 && (
+                    <span
+                        className="mb-1 px-2.5 py-0.5 rounded-full text-xs font-semibold text-white shadow"
+                        style={{ backgroundColor: "var(--color-primary-500)" }}
+                    >
+                      {unreadWhileScrolledUp} nouveau{unreadWhileScrolledUp > 1 ? "x" : ""} message{unreadWhileScrolledUp > 1 ? "s" : ""}
+                    </span>
+                )}
+                <div
+                    className="w-10 h-10 rounded-full flex items-center justify-center"
+                    style={{ backgroundColor: "var(--color-surface)", color: "var(--color-primary-500)", border: "1px solid var(--color-border)" }}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
               </button>
           )}
 

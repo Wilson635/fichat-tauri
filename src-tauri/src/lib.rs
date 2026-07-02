@@ -94,6 +94,13 @@ pub fn run() {
             commands::chat::cmd_get_conversation_media,
             commands::chat::cmd_edit_message,
             commands::chat::cmd_delete_message,
+            // ── Notifications ─────────────────────────────
+            commands::notifications::cmd_send_toast_notification,
+            commands::notifications::cmd_send_priority_notification,
+            commands::notifications::cmd_set_badge_count,
+            commands::notifications::cmd_request_notification_permission,
+            commands::notifications::cmd_focus_window,
+            commands::notifications::cmd_test_notification,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Enterprise Chat");

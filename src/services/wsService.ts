@@ -1,7 +1,9 @@
 /**
  * WebSocket service.
  * In Tauri: connects to ws://127.0.0.1:9001 (started by the Rust backend).
- * In web preview: simulates WebSocket events in-memory for a realistic demo.
+ * In web preview: simulates WebSocket events in-memory for a realistic demo,
+ *   AND uses BroadcastChannel so different browser tabs (users) exchange
+ *   messages in real-time without a real server.
  */
 
 import { useAuthStore } from "@/store/authStore";
@@ -19,6 +21,8 @@ export type WsEvent =
 
 type WsEventListener = (event: WsEvent) => void;
 
+const BROADCAST_CHANNEL_NAME = "fichat_ws_v1";
+
 // ─── Service ─────────────────────────────────────────────────────────────────
 class WebSocketService {
   private ws: WebSocket | null = null;
@@ -26,7 +30,7 @@ class WebSocketService {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private mockTimers: ReturnType<typeof setTimeout>[] = [];
   private connected = false;
-  //private mockAutoResponseEnabled = true;
+  private channel: BroadcastChannel | null = null;
 
   on(listener: WsEventListener) {
     this.listeners.push(listener);
@@ -84,11 +88,45 @@ class WebSocketService {
   private connectMock(_token: string) {
     if (this.connected) return;
     this.connected = true;
+
+    // ── BroadcastChannel: receive messages from other tabs ───────────────
+    if (typeof BroadcastChannel !== "undefined") {
+      if (this.channel) {
+        this.channel.close();
+      }
+      this.channel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
+      this.channel.onmessage = (e) => {
+        try {
+          const payload = e.data as { event: WsEvent; senderUserId: number };
+          const myUserId = useAuthStore.getState().user?.id ?? -1;
+          // Don't re-process events I sent myself (avoid echo)
+          if (payload.senderUserId === myUserId) return;
+          this.emit(payload.event);
+        } catch {
+          // ignore
+        }
+      };
+    }
+
     // Simulate successful auth
     setTimeout(() => {
       const userId = useAuthStore.getState().user?.id ?? 1;
       this.emit({ type: "auth_ok", user_id: userId });
     }, 200);
+  }
+
+  /**
+   * Broadcast a WsEvent to all OTHER tabs via BroadcastChannel (mock mode).
+   * This is what makes cross-tab real-time messaging work.
+   */
+  broadcastEvent(event: WsEvent) {
+    if (isTauri() || !this.channel) return;
+    const myUserId = useAuthStore.getState().user?.id ?? -1;
+    try {
+      this.channel.postMessage({ event, senderUserId: myUserId });
+    } catch {
+      // ignore
+    }
   }
 
   disconnect() {
@@ -97,6 +135,8 @@ class WebSocketService {
     this.mockTimers = [];
     this.ws?.close();
     this.ws = null;
+    this.channel?.close();
+    this.channel = null;
     this.connected = false;
   }
 
