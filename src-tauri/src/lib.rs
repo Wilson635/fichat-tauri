@@ -1,6 +1,7 @@
 mod commands;
 mod config;
 mod db;
+mod pg_notify;
 mod ws;
 
 use std::sync::Arc;
@@ -173,11 +174,14 @@ async fn initialize_app(
                     });
                 }
 
+                // ── Start PostgreSQL LISTEN/NOTIFY (temps-réel multi-machines) ─
+                pg_notify::start(pool.clone(), hub.clone());
+
                 let mut s = state.lock().await;
                 s.db_pool  = Some(pool);
                 s.config   = Some(cfg);
                 s.ws_hub   = Some(hub);
-                tracing::info!("FiChat ready ✓ (WS on port {})", ws::WS_PORT);
+                tracing::info!("FiChat ready ✓ (WS on port {}, PG LISTEN actif)", ws::WS_PORT);
             }
             Err(e) => {
                 tracing::error!("PostgreSQL connection failed: {}", e);

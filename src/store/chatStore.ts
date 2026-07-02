@@ -447,17 +447,25 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           chatService.markAsRead(convId).catch(() => {});
         }
 
-        if (!isOwn && s.currentConversationId !== convId) {
-          const conv = s.conversations.find((c) => c.id === convId);
-          if (conv) {
+        if (!isOwn) {
+          // Notifier si :
+          //   • User B n'est pas dans cette conversation, OU
+          //   • La fenêtre Tauri n'a pas le focus (app en arrière-plan / minimisée)
+          const windowFocused = typeof document !== "undefined" && document.hasFocus();
+          const inActiveConv = s.currentConversationId === convId;
+          const shouldNotify = !inActiveConv || !windowFocused;
+
+          if (shouldNotify) {
+            // Cherche la conv dans le store ; si absente, utilise un nom générique
+            const conv = s.conversations.find((c) => c.id === convId);
+            const convName = conv?.name ?? `Conversation #${convId}`;
             useNotificationStore.getState().addNotification({
               conversationId: convId,
-              conversationName: conv.name,
+              conversationName: convName,
               senderName: msg.senderName ?? "Inconnu",
               content: msg.content ?? "(message)",
               createdAt: msg.createdAt,
-              isPriority:false
-              //isPriority: msg.messageType === "priority",
+              isPriority: false,
             });
           }
         }

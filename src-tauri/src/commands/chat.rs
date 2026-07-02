@@ -509,23 +509,42 @@ pub async fn cmd_send_message(
         attachments: vec![],
     };
 
-    // Broadcast via WS to all participants
-    if let Some(hub) = hub {
-        let participant_ids: Vec<(i32,)> = sqlx::query_as(
-            "SELECT user_id FROM conversation_participants WHERE conversation_id = $1",
-        )
-        .bind(conversation_id)
-        .fetch_all(&pool)
-        .await
-        .unwrap_or_default();
+    // ── Récupère les participants ──────────────────────────────────────────────
+    let participant_ids: Vec<(i32,)> = sqlx::query_as(
+        "SELECT user_id FROM conversation_participants WHERE conversation_id = $1",
+    )
+    .bind(conversation_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
+    let user_ids: Vec<i64> = participant_ids.into_iter().map(|(id,)| id as i64).collect();
 
-        let user_ids: Vec<i64> = participant_ids.into_iter().map(|(id,)| id as i64).collect();
+    // ── Broadcast WS local (même machine) ─────────────────────────────────────
+    if let Some(hub) = hub {
         let event = ws::ServerEvent::NewMessage {
             conversation_id: conversation_id as i64,
             message: serde_json::to_value(&dto).unwrap_or_default(),
         };
-        tracing::info!("cmd_send_message: broadcast vers {} participants", user_ids.len());
+        tracing::info!("cmd_send_message: broadcast local vers {} participants", user_ids.len());
         hub.broadcast_to_users(&user_ids, &event).await;
+    }
+
+    // ── pg_notify : diffusion vers TOUTES les machines du réseau ─────────────
+    // Chaque instance Tauri écoute 'fichat_messages' via PgListener.
+    // La déduplication (même message_id) est gérée côté frontend.
+    let notify_payload = serde_json::json!({
+        "conversation_id": conversation_id as i64,
+        "participant_ids": user_ids,
+        "message": serde_json::to_value(&dto).unwrap_or_default(),
+    });
+    if let Err(e) = sqlx::query("SELECT pg_notify('fichat_messages', $1)")
+        .bind(notify_payload.to_string())
+        .execute(&pool)
+        .await
+    {
+        tracing::warn!("pg_notify fichat_messages failed: {}", e);
+    } else {
+        tracing::info!("pg_notify fichat_messages envoyé pour conv={}", conversation_id);
     }
 
     Ok(dto)
