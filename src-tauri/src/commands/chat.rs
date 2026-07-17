@@ -590,19 +590,21 @@ pub async fn cmd_mark_as_read(
     .await
     .map_err(|e| { tracing::error!("cmd_mark_as_read error: {}", e); format!("Erreur DB : {e}") })?;
 
-    if let Some(hub) = hub {
-        let sender_ids: Vec<(i32,)> = sqlx::query_as(
-            "SELECT DISTINCT sender_id FROM messages WHERE conversation_id = $1 AND sender_id <> $2 AND sender_id IS NOT NULL",
-        )
-        .bind(conversation_id)
-        .bind(uid)
-        .fetch_all(&pool)
-        .await
-        .unwrap_or_default();
+    // Récupère tous les expéditeurs dans cette conversation (hors soi-même)
+    let sender_ids: Vec<(i32,)> = sqlx::query_as(
+        "SELECT DISTINCT sender_id FROM messages WHERE conversation_id = $1 AND sender_id <> $2 AND sender_id IS NOT NULL",
+    )
+    .bind(conversation_id)
+    .bind(uid)
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_default();
 
-        for (sid,) in sender_ids {
+    // Broadcast WS local
+    if let Some(ref hub) = hub {
+        for (sid,) in &sender_ids {
             hub.send_to_user(
-                sid as i64,
+                *sid as i64,
                 &ws::ServerEvent::MessageStatus {
                     message_id: 0,
                     conversation_id: conversation_id as i64,
@@ -612,6 +614,23 @@ pub async fn cmd_mark_as_read(
             )
             .await;
         }
+    }
+
+    // pg_notify pour les machines distantes
+    let sender_ids_i64: Vec<i64> = sender_ids.iter().map(|(id,)| *id as i64).collect();
+    let notify_payload = serde_json::json!({
+        "conversation_id": conversation_id as i64,
+        "message_id": 0_i64,
+        "user_id": uid,
+        "status": "read",
+        "notify_user_ids": sender_ids_i64,
+    });
+    if let Err(e) = sqlx::query("SELECT pg_notify('fichat_status', $1)")
+        .bind(notify_payload.to_string())
+        .execute(&pool)
+        .await
+    {
+        tracing::warn!("pg_notify fichat_status failed: {}", e);
     }
 
     Ok(())
@@ -1638,33 +1657,34 @@ pub async fn cmd_edit_message(
     message_id: i32,
     new_content: String,
 ) -> Result<(), String> {
-    let s = state.lock().await;
-    let pool = s.db_pool.as_ref().ok_or("Database pool non disponible")?;
+    let (pool, jwt_secret, hub) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+            s.ws_hub.clone(),
+        )
+    };
+    let uid = extract_uid(&token, &jwt_secret)?;
 
-    // Extraction de l'ID utilisateur à partir du JWT pour sécuriser l'édition
-    let uid = extract_uid(&token, &s.jwt_secret)?;
-
-    // Utilisation de la macro dynamique sqlx::query sans '!'
     let rows_affected = sqlx::query(
-        r#"
-        UPDATE messages
-        SET content = $1, is_edited = true, updated_at = NOW()
-        WHERE id = $2 AND conversation_id = $3 AND sender_id = $4
-        "#,
+        r#"UPDATE messages SET content = $1, is_edited = true, updated_at = NOW()
+           WHERE id = $2 AND conversation_id = $3 AND sender_id = $4"#,
     )
-        .bind(new_content)      // $1
-        .bind(message_id)       // $2
-        .bind(conversation_id)  // $3
-        .bind(uid)              // $4
-        .execute(pool)
-        .await
-        .map_err(|e| format!("Erreur DB lors de la modification : {e}"))?
-        .rows_affected();
+    .bind(&new_content)
+    .bind(message_id)
+    .bind(conversation_id)
+    .bind(uid)
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("Erreur DB lors de la modification : {e}"))?
+    .rows_affected();
 
     if rows_affected == 0 {
         return Err("Message introuvable ou vous n'êtes pas l'auteur".to_string());
     }
 
+    broadcast_message_update(&pool, hub, conversation_id, message_id).await;
     Ok(())
 }
 
@@ -1675,31 +1695,120 @@ pub async fn cmd_delete_message(
     conversation_id: i32,
     message_id: i32,
 ) -> Result<(), String> {
-    let s = state.lock().await;
-    let pool = s.db_pool.as_ref().ok_or("Database pool non disponible")?;
-    let uid = extract_uid(&token, &s.jwt_secret)?;
+    let (pool, jwt_secret, hub) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+            s.ws_hub.clone(),
+        )
+    };
+    let uid = extract_uid(&token, &jwt_secret)?;
 
-    // Soft delete (recommandé pour conserver l'historique et la cohérence de l'UI)
     let rows_affected = sqlx::query(
-        r#"
-    UPDATE messages
-    SET is_deleted = true, updated_at = NOW()
-    WHERE id = $1 AND conversation_id = $2 AND sender_id = $3
-    "#,
+        r#"UPDATE messages SET is_deleted = true, updated_at = NOW()
+           WHERE id = $1 AND conversation_id = $2 AND sender_id = $3"#,
     )
-        .bind(message_id)
-        .bind(conversation_id)
-        .bind(uid)
-        .execute(pool)
-        .await
-        .map_err(|e| format!("Erreur DB lors de la suppression : {e}"))?
-        .rows_affected();
+    .bind(message_id)
+    .bind(conversation_id)
+    .bind(uid)
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("Erreur DB lors de la suppression : {e}"))?
+    .rows_affected();
 
     if rows_affected == 0 {
         return Err("Message introuvable ou vous n'êtes pas l'auteur".to_string());
     }
 
+    broadcast_message_update(&pool, hub, conversation_id, message_id).await;
     Ok(())
+}
+
+// ─── Helper : broadcast + pg_notify après une modification de message ─────────
+
+async fn broadcast_message_update(
+    pool: &sqlx::PgPool,
+    hub: Option<std::sync::Arc<crate::ws::WsHub>>,
+    conversation_id: i32,
+    message_id: i32,
+) {
+    use sqlx::Row;
+
+    // Récupère le message mis à jour
+    let msg_val: Option<serde_json::Value> = sqlx::query(
+        r#"SELECT m.id, m.sender_id, m.content, u.display_name AS sender_name,
+                  m.is_edited, m.is_deleted, m.message_type,
+                  m.created_at
+           FROM messages m
+           LEFT JOIN users u ON u.id = m.sender_id
+           WHERE m.id = $1"#,
+    )
+    .bind(message_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .map(|row| {
+        let id: i32 = row.try_get("id").unwrap_or(0);
+        let sender_id: Option<i64> = row.try_get("sender_id").ok();
+        let content: Option<String> = row.try_get("content").ok().flatten();
+        let sender_name: Option<String> = row.try_get("sender_name").ok().flatten();
+        let is_edited: bool = row.try_get("is_edited").unwrap_or(false);
+        let is_deleted: bool = row.try_get("is_deleted").unwrap_or(false);
+        let message_type: String = row.try_get("message_type").unwrap_or_else(|_| "text".into());
+        let created_at: chrono::DateTime<chrono::Utc> =
+            row.try_get("created_at").unwrap_or_else(|_| chrono::Utc::now());
+        serde_json::json!({
+            "id": id,
+            "conversation_id": conversation_id,
+            "sender_id": sender_id,
+            "sender_name": sender_name,
+            "content": content,
+            "message_type": message_type,
+            "is_edited": is_edited,
+            "is_deleted": is_deleted,
+            "created_at": created_at.to_rfc3339(),
+            "status": "sent",
+            "attachments": [],
+        })
+    });
+
+    let Some(msg_val) = msg_val else { return };
+
+    // Participants de la conversation
+    let participants: Vec<i64> = sqlx::query_as::<_, (i32,)>(
+        "SELECT user_id FROM conversation_participants WHERE conversation_id = $1",
+    )
+    .bind(conversation_id)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|(id,)| id as i64)
+    .collect();
+
+    let event = crate::ws::ServerEvent::NewMessage {
+        conversation_id: conversation_id as i64,
+        message: msg_val.clone(),
+    };
+
+    if let Some(hub) = hub {
+        hub.broadcast_to_users(&participants, &event).await;
+    }
+
+    let notify_payload = serde_json::json!({
+        "conversation_id": conversation_id as i64,
+        "participant_ids": participants,
+        "message": msg_val,
+    });
+    if let Err(e) = sqlx::query("SELECT pg_notify('fichat_messages', $1)")
+        .bind(notify_payload.to_string())
+        .execute(pool)
+        .await
+    {
+        tracing::warn!("pg_notify broadcast_message_update failed: {}", e);
+    }
 }
 // ─── GET WS PORT ──────────────────────────────────────────────────────────────
 

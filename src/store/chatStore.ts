@@ -423,7 +423,24 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
         set((s) => {
           const existing = s.messagesMap[convId] ?? [];
-          if (existing.some((m) => m.id === msg.id)) return s;
+
+          // Mise à jour d'un message existant (édition ou suppression soft)
+          if (existing.some((m) => m.id === msg.id)) {
+            if (msg.isEdited || msg.isDeleted) {
+              return {
+                ...s,
+                messagesMap: {
+                  ...s.messagesMap,
+                  [convId]: existing.map((m) =>
+                    m.id === msg.id
+                      ? { ...m, content: msg.content, isEdited: msg.isEdited, isDeleted: msg.isDeleted }
+                      : m
+                  ),
+                },
+              };
+            }
+            return s; // doublon, ignorer
+          }
 
           const isActive = s.currentConversationId === convId;
           const conversations = s.conversations.map((c) => {

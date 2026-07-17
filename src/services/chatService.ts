@@ -252,7 +252,7 @@ export const chatService = {
       return;
     }
     const token = useAuthStore.getState().token!;
-    await invoke("cmd_edit_message", { token, messageId, content: newContent });
+    await invoke("cmd_edit_message", { token, conversationId, messageId, newContent });
   },
 
   // ── Delete message ────────────────────────────────────────────────────────────
@@ -263,7 +263,7 @@ export const chatService = {
       return;
     }
     const token = useAuthStore.getState().token!;
-    await invoke("cmd_delete_message", { token, messageId });
+    await invoke("cmd_delete_message", { token, conversationId, messageId });
   },
 
   // ── Mark as read ─────────────────────────────────────────────────────────────

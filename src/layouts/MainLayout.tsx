@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Outlet } from "react-router-dom";
 import { Sidebar } from "@/components/Sidebar";
 import { PriorityNotificationModal } from "@/components/PriorityNotificationModal";
+import { MessageActionsModal } from "@/components/MessageActionsModal";
 import { GlobalSearchModal } from "@/components/GlobalSearchModal";
 import { useChatStore } from "@/store/chatStore";
 import { useNotificationStore } from "@/store/notificationStore";
@@ -46,6 +47,7 @@ export function MainLayout() {
         <Outlet />
       </main>
       <PriorityNotificationModal />
+      <MessageActionsModal />
       {showGlobalSearch && (
         <GlobalSearchModal onClose={() => setShowGlobalSearch(false)} />
       )}

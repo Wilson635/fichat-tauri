@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useChatStore } from "@/store/chatStore";
 import { useAuthStore } from "@/store/authStore";
+import { useMessageActionStore } from "@/store/messageActionStore";
 import { wsService } from "@/services/wsService";
 import { MessageBubble, DateSeparator, formatDateSeparator } from "@/components/MessageBubble";
 import { MessageInput } from "@/components/MessageInput";
@@ -42,11 +43,11 @@ export function ChatPage() {
     loadMoreMessages,
     sendMessage,
     sendFileMessage,
-    editMessage,
-    deleteMessage,
     markAsRead,
     setCurrentConversation,
   } = useChatStore();
+
+  const { openEdit, openDelete } = useMessageActionStore();
 
   const hasMoreRef = useRef<Record<number, boolean>>({});
   hasMoreRef.current = hasMoreMessages;
@@ -58,7 +59,6 @@ export function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [replyTo, setReplyTo] = useState<MessageDto | null>(null);
-  const [editingMessage, setEditingMessage] = useState<MessageDto | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [scrolledToBottom, setScrolledToBottom] = useState(true);
@@ -202,24 +202,19 @@ export function ChatPage() {
 
   const handleSend = useCallback(
       (content: string, replyToId?: number) => {
-        if (editingMessage) {
-          editMessage(convId, editingMessage.id, content);
-          setEditingMessage(null);
-        } else {
-          sendMessage(convId, content, replyToId);
-        }
+        sendMessage(convId, content, replyToId);
       },
-      [convId, sendMessage, editMessage, editingMessage],
+      [convId, sendMessage],
   );
 
   const handleEditMessage = useCallback((msg: MessageDto) => {
-    setEditingMessage(msg);
     setReplyTo(null);
-  }, []);
+    openEdit(convId, msg);
+  }, [convId, openEdit]);
 
   const handleDeleteMessage = useCallback((msg: MessageDto) => {
-    deleteMessage(convId, msg.id);
-  }, [convId, deleteMessage]);
+    openDelete(convId, msg);
+  }, [convId, openDelete]);
 
   const handleSendFile = useCallback(
       (file: File, thumbnail: string | null, dataUrl: string, caption: string, replyToId?: number) => {
@@ -527,8 +522,6 @@ export function ChatPage() {
               onTyping={handleTyping}
               replyTo={replyTo}
               onCancelReply={() => setReplyTo(null)}
-              editingMessage={editingMessage}
-              onCancelEdit={() => setEditingMessage(null)}
           />
         </div>{/* end main chat column */}
 

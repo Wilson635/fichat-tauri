@@ -18,8 +18,6 @@ interface Props {
     replyTo: MessageDto | null;
     onCancelReply: () => void;
     disabled?: boolean;
-    editingMessage?: MessageDto | null;
-    onCancelEdit?: () => void;
 }
 
 function getExtension(f: string) { return f.split(".").pop()?.toLowerCase() ?? ""; }
@@ -259,7 +257,7 @@ function PendingFilePreview({ pendingFile, onRemove }: { pendingFile: PendingFil
 }
 
 // ─── MessageInput ─────────────────────────────────────────────────────────────
-export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelReply, disabled, editingMessage, onCancelEdit }: Props) {
+export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelReply, disabled }: Props) {
     const [text, setText] = useState("");
     const [showEmoji, setShowEmoji] = useState(false);
     const [showAttachMenu, setShowAttachMenu] = useState(false);
@@ -272,14 +270,6 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
     const { theme } = useThemeStore();
 
     const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-
-    // Pre-fill text when editing
-    useEffect(() => {
-        if (editingMessage) {
-            setText(editingMessage.content ?? "");
-            inputRef.current?.focus();
-        }
-    }, [editingMessage]);
 
     const canSend = !disabled && (text.trim().length > 0 || pendingFile !== null);
 
@@ -294,14 +284,12 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
             onSend(text.trim(), replyTo?.id);
             setText("");
             onCancelReply();
-            if (editingMessage) onCancelEdit?.();
         }
         inputRef.current?.focus();
-    }, [canSend, pendingFile, text, replyTo, editingMessage, onSend, onSendFile, onCancelReply, onCancelEdit]);
+    }, [canSend, pendingFile, text, replyTo, onSend, onSendFile, onCancelReply]);
 
     const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
-        if (e.key === "Escape" && editingMessage) { onCancelEdit?.(); setText(""); }
     };
 
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -357,29 +345,9 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
     return (
         <div className="shrink-0 px-3 py-2" style={{ backgroundColor: "var(--color-header-bg)" }}>
 
-            {/* ── Edit mode banner ──────────────────────────────────────────────── */}
-            {editingMessage && (
-                <div
-                    className="flex items-center gap-2 mb-2 px-3 py-2 rounded-lg border-l-4"
-                    style={{ backgroundColor: "var(--color-surface-secondary)", borderColor: "#f59e0b" }}
-                >
-                    <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "#f59e0b" }}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                    <div className="flex-1 min-w-0">
-                        <span className="text-xs font-semibold block" style={{ color: "#f59e0b" }}>Modifier le message</span>
-                        <span className="text-xs truncate block" style={{ color: "var(--color-text-muted)" }}>{editingMessage.content}</span>
-                    </div>
-                    <button onClick={() => { onCancelEdit?.(); setText(""); }} className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: "var(--color-border)" }}>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} style={{ color: "var(--color-text-muted)" }}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
-                </div>
-            )}
 
             {/* ── Reply preview ──────────────────────────────────────────────────── */}
-            {replyTo && !editingMessage && (
+            {replyTo && (
                 <div
                     className="flex items-center gap-2 mb-2 px-3 py-2 rounded-lg border-l-4"
                     style={{ backgroundColor: "var(--color-surface-secondary)", borderColor: "var(--color-primary-500)" }}
@@ -487,17 +455,11 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
                         color: canSend ? "#fff" : "var(--color-text-muted)",
                         transform: canSend ? "scale(1)" : "scale(0.88)",
                     }}
-                    title={editingMessage ? "Valider (Entrée)" : "Envoyer (Entrée)"}
+                    title="Envoyer (Entrée)"
                 >
-                    {editingMessage ? (
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                    ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
-                        </svg>
-                    )}
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
+                    </svg>
                 </button>
             </div>
 
