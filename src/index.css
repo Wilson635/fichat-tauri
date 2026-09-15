@@ -1325,7 +1325,7 @@ body.sidebar-resizing * {
   height: 100%;
 }
 .doc-preview-surface.is-bubble {
-  height: 148px;
+  height: 100%;
 }
 .doc-preview-surface.is-tile {
   height: 100%;
@@ -1467,8 +1467,342 @@ body.sidebar-resizing * {
   flex-shrink: 0;
 }
 .doc-bubble-preview {
-  height: 148px;
+  height: 172px;
   overflow: hidden;
+}
+
+.fichat-file-card {
+  width: 268px;
+  max-width: 100%;
+  padding: 6px;
+}
+.fichat-file-preview {
+  display: block;
+  width: 100%;
+  height: 172px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--color-surface) 88%, #0f172a);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-border) 80%, transparent);
+}
+.fichat-file-preview:focus-visible {
+  outline: 2px solid var(--color-primary-500);
+  outline-offset: 2px;
+}
+.fichat-file-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 2px 2px;
+}
+.fichat-file-open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.fichat-file-type {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.fichat-file-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.fichat-file-copy .name {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fichat-file-copy .meta {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fichat-file-dl {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.fichat-file-dl:hover {
+  background: var(--color-active);
+  color: var(--color-primary-600);
+}
+.fichat-file-hero {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 16px;
+}
+.fichat-file-hero.is-lg {
+  padding: 28px;
+}
+.fichat-file-page-mock {
+  position: relative;
+  width: min(132px, 70%);
+  aspect-ratio: 3 / 3.9;
+  background: #fff;
+  border-radius: 4px 10px 4px 4px;
+  box-shadow: 0 14px 32px -14px rgba(15, 23, 42, 0.55);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px 10px 12px;
+}
+.fichat-file-hero.is-lg .fichat-file-page-mock {
+  width: min(210px, 38%);
+}
+.fichat-file-page-mock .fold {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 18px;
+  height: 18px;
+  background: linear-gradient(135deg, transparent 50%, #e2e8f0 50%);
+  border-radius: 0 10px 0 0;
+}
+.fichat-file-page-mock .brand {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.fichat-file-page-mock .brand.is-logo {
+  background: transparent;
+  width: 46px;
+  height: 46px;
+}
+.fichat-file-page-mock .brand svg {
+  width: 32px;
+  height: 32px;
+}
+.fichat-file-page-mock .brand.is-logo svg {
+  width: 42px;
+  height: 42px;
+}
+.fichat-file-page-mock .kind {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+.fichat-file-page-mock .fname {
+  font-size: 9px;
+  color: #94a3b8;
+  text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dark .fichat-file-page-mock {
+  background: #f8fafc;
+}
+.fichat-pdf-page {
+  height: 100%;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 12px 16px 14px;
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(255, 255, 255, 0.22), transparent 55%),
+    linear-gradient(180deg, #94a3b8 0%, #64748b 100%);
+}
+.fichat-pdf-page .doc-pdf-frame,
+.fichat-pdf-page .doc-text-pane {
+  background: #fff;
+  border-radius: 2px;
+  box-shadow: 0 10px 28px -12px rgba(15, 23, 42, 0.45);
+}
+.doc-preview-surface.is-overlay.is-paper .fichat-pdf-page {
+  padding: 0;
+  background: #334155;
+}
+.doc-preview-surface.is-overlay.is-paper .doc-pdf-frame,
+.doc-preview-surface.is-overlay.is-paper .doc-text-pane {
+  border-radius: 0;
+  box-shadow: none;
+}
+.fichat-media-card {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 196px;
+  max-width: 280px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  cursor: pointer;
+  background: #0b1220;
+  color: inherit;
+}
+.fichat-media-img {
+  width: 100%;
+  max-height: 240px;
+  object-fit: cover;
+  display: block;
+}
+.fichat-media-img.is-photo {
+  max-height: 320px;
+}
+.fichat-media-fallback {
+  height: 164px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  color: #cbd5e1;
+  font-size: 12px;
+  text-align: center;
+}
+.fichat-media-fallback span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fichat-play-btn {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: color-mix(in srgb, var(--color-primary-500) 88%, #0f172a);
+  box-shadow: 0 10px 24px -10px rgba(15, 23, 42, 0.7);
+  pointer-events: none;
+}
+.fichat-play-btn svg {
+  width: 18px;
+  height: 18px;
+  margin-left: 2px;
+}
+.fichat-preview-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(15, 23, 42, 0.62);
+  backdrop-filter: blur(8px);
+}
+.fichat-preview-win {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 18px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 28px 64px -20px rgba(15, 23, 42, 0.5);
+  font-family: "Poppins", "Segoe UI", sans-serif;
+  min-width: 320px;
+  min-height: 240px;
+}
+.fichat-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-header-bg);
+  cursor: move;
+  user-select: none;
+}
+.fichat-preview-chip {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 4px 7px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.fichat-preview-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface-secondary);
+}
+.fichat-preview-generic {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 24px 28px;
+  text-align: center;
+  width: 100%;
+  height: 100%;
+}
+.fichat-preview-generic-hero {
+  width: min(100%, 360px);
+  height: min(260px, 52%);
+  border-radius: 14px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.fichat-preview-dl {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-primary-500);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 /* ─── Conversation info panel ────────────────────────────────────────────── */
