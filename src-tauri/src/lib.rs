@@ -2,6 +2,7 @@ mod commands;
 mod config;
 mod db;
 mod log_buffer;
+mod log_archive;
 mod pg_notify;
 mod ws;
 mod background;
@@ -57,6 +58,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(state.clone())
         .setup(move |app| {
+            crate::log_archive::init_worker();
             background::setup_tray(app)?;
             background::hide_on_autostart(app);
             background::ensure_default_autostart();
@@ -91,6 +93,9 @@ pub fn run() {
             commands::admin::cmd_admin_export_runtime_logs,
             commands::admin::cmd_admin_get_sync_history,
             commands::admin::cmd_admin_sync_ad,
+            commands::admin::cmd_admin_create_user,
+            commands::admin::cmd_admin_reset_local_password,
+            commands::admin::cmd_admin_list_log_archives,
             // ── Chat ─────────────────────────────────────
             commands::chat::cmd_get_ws_port,
             commands::chat::cmd_list_users,
@@ -121,6 +126,7 @@ pub fn run() {
             commands::notifications::cmd_test_notification,
             commands::app::cmd_get_autostart,
             commands::app::cmd_set_autostart,
+            commands::app::cmd_admin_save_config,
         ])
         .on_window_event(|window, event| {
             if window.label() != "main" {
@@ -179,48 +185,6 @@ async fn initialize_app(
         s.jwt_secret = jwt_secret.clone();
     }
 
-    let config_path = app_handle
-        .path()
-        .app_config_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join("config.toml");
-
-    if let Ok(cfg) = config::AppConfig::load(&config_path) {
-        tracing::info!("Config loaded, connecting to PostgreSQL...");
-        match db::create_pool(&cfg.db_url).await {
-            Ok(pool) => {
-                tracing::info!("PostgreSQL connected ✓");
-                if let Err(e) = db::run_migrations(&pool).await {
-                    tracing::error!("Migration error: {}", e);
-                }
-
-                // ── Start WebSocket server ──────────────────────────────────
-                let hub = ws::WsHub::new();
-                {
-                    let hub_clone  = hub.clone();
-                    let pool_clone = pool.clone();
-                    let secret     = jwt_secret.clone();
-                    tokio::spawn(async move {
-                        ws::start_ws_server(hub_clone, pool_clone, secret).await;
-                    });
-                }
-
-                // ── Start PostgreSQL LISTEN/NOTIFY (temps-réel multi-machines) ─
-                pg_notify::start(pool.clone(), hub.clone());
-
-                let mut s = state.lock().await;
-                s.db_pool  = Some(pool);
-                s.config   = Some(cfg);
-                s.ws_hub   = Some(hub);
-                tracing::info!("FiEcho ready ✓ (WS on port {}, PG LISTEN actif)", ws::WS_PORT);
-            }
-            Err(e) => {
-                tracing::error!("PostgreSQL connection failed: {}", e);
-            }
-        }
-    } else {
-        tracing::info!("No config found — setup required");
-    }
-
+    commands::app::bootstrap(app_handle, state).await?;
     Ok(())
 }

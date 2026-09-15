@@ -48,17 +48,17 @@ export function LoginPage() {
   return (
     <AuthShell
       headline={`Bienvenue sur ${APP_NAME}`}
-      description="Messagerie interne de First Trust. Connectez-vous avec votre identifiant Windows pour rejoindre vos discussions, groupes et fichiers d’équipe."
+      description="Messagerie interne de First Trust. Connectez-vous avec votre identifiant Windows ou le compte créé par l’administrateur."
       features={[
         "Discussions privées et groupes d’équipe",
         "Partage de documents, images et vocaux",
         "Alertes prioritaires et mode Ne pas déranger",
-        "Authentification Active Directory, sans compte séparé",
+        "Comptes Active Directory et comptes locaux",
       ]}
       footer={
         isTauri()
-          ? "Application de bureau Windows · LDAP / Active Directory"
-          : "Aperçu web · LDAP / Active Directory"
+          ? "Application de bureau Windows · AD et comptes locaux"
+          : "Aperçu web · AD et comptes locaux"
       }
     >
       <div
@@ -73,10 +73,10 @@ export function LoginPage() {
           Connexion
         </p>
         <h2 className="text-[20px] font-semibold tracking-tight" style={{ color: "var(--color-text-primary)" }}>
-          Identifiants du domaine
+          Identifiants
         </h2>
         <p className="text-[13px] mt-1 mb-7" style={{ color: "var(--color-text-muted)" }}>
-          Utilisez le même login que pour votre session Windows.
+          Identifiant Windows ou compte local créé par l’administrateur.
         </p>
 
         <form onSubmit={handleLogin} className="space-y-4">
@@ -91,7 +91,7 @@ export function LoginPage() {
                 setError(null);
               }}
               autoComplete="username"
-              placeholder="Login Windows"
+              placeholder="Identifiant"
               disabled={isLoading}
               autoFocus
             />
@@ -115,7 +115,7 @@ export function LoginPage() {
               onKeyUp={(e) => setCapsLock(e.getModifierState("CapsLock"))}
               onKeyDown={(e) => setCapsLock(e.getModifierState("CapsLock"))}
               autoComplete="current-password"
-              placeholder="Mot de passe Windows"
+              placeholder="Mot de passe"
               disabled={isLoading}
             />
             <button

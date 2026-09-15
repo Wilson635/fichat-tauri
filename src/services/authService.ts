@@ -34,7 +34,7 @@ export function normalizeAuthError(raw: unknown): string {
   if (/connection refused|refused|Cannot connect|network|timeout|inaccessible/i.test(msg))
     return "Impossible de contacter le serveur Active Directory. Vérifiez votre connexion réseau.";
   if (/not configured|non configurée|Application non/i.test(msg))
-    return "L'application n'est pas encore configurée. Lancez la configuration initiale.";
+    return "Impossible de joindre le serveur. Vérifiez la connexion à la base de données.";
   if (/database|base de données|DB/i.test(msg))
     return "Erreur de base de données. Contactez votre administrateur.";
 
@@ -62,7 +62,24 @@ export interface AppConfig {
   ldap_base_dn: string;
   ldap_user_attribute: string;
   ldap_use_tls: boolean;
+  ldap_bind_dn?: string;
+  ldap_bind_password?: string;
+  runtime_log_dir?: string;
   app_name: string;
+}
+
+export function toStoreConfig(cfg: AppConfig) {
+  return {
+    ldapHost: cfg.ldap_host,
+    ldapPort: cfg.ldap_port,
+    ldapBaseDn: cfg.ldap_base_dn,
+    ldapUserAttribute: cfg.ldap_user_attribute,
+    ldapUseTls: cfg.ldap_use_tls,
+    ldapBindDn: cfg.ldap_bind_dn ?? "",
+    dbUrl: cfg.db_url,
+    runtimeLogDir: cfg.runtime_log_dir ?? "",
+    appName: cfg.app_name,
+  };
 }
 
 export interface AppStatus {
@@ -94,7 +111,7 @@ export const authService = {
         title: "Employé",
         phone: null,
         avatarPath: null,
-        role: "user",
+        role: username.trim().toLowerCase() === "admin" ? "system_admin" : "user",
         presenceStatus: "online",
         statusMessage: null,
       };
@@ -190,9 +207,36 @@ export const authService = {
    */
   async loadConfig(): Promise<AppConfig> {
     if (!isTauri()) {
-      return { db_url: "mock", ldap_host: "mock", ldap_port: 389, ldap_base_dn: "dc=example,dc=com", ldap_user_attribute: "sAMAccountName", ldap_use_tls: false, app_name: APP_NAME };
+      return { db_url: "mock", ldap_host: "mock", ldap_port: 389, ldap_base_dn: "dc=example,dc=com", ldap_user_attribute: "sAMAccountName", ldap_use_tls: false, ldap_bind_dn: "", runtime_log_dir: "", app_name: APP_NAME };
     }
     return tauriInvoke<AppConfig>("cmd_load_config");
+  },
+
+  async adminSaveConfig(token: string, config: {
+    dbUrl: string;
+    ldapHost: string;
+    ldapPort: number;
+    ldapBaseDn: string;
+    ldapUserAttribute: string;
+    ldapUseTls: boolean;
+    ldapBindDn: string;
+    ldapBindPassword: string;
+    runtimeLogDir: string;
+  }): Promise<AppConfig> {
+    if (!isTauri()) {
+      return {
+        db_url: config.dbUrl,
+        ldap_host: config.ldapHost,
+        ldap_port: config.ldapPort,
+        ldap_base_dn: config.ldapBaseDn,
+        ldap_user_attribute: config.ldapUserAttribute,
+        ldap_use_tls: config.ldapUseTls,
+        ldap_bind_dn: config.ldapBindDn,
+        runtime_log_dir: config.runtimeLogDir,
+        app_name: APP_NAME,
+      };
+    }
+    return tauriInvoke<AppConfig>("cmd_admin_save_config", { token, config });
   },
 
   async getAutostart(): Promise<boolean> {

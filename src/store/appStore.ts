@@ -6,7 +6,9 @@ interface AppConfig {
   ldapBaseDn: string;
   ldapUseTls: boolean;
   ldapUserAttribute: string;
+  ldapBindDn: string;
   dbUrl: string;
+  runtimeLogDir: string;
   appName: string;
 }
 

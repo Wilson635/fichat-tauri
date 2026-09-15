@@ -3,10 +3,8 @@ use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use ldap3::{LdapConnAsync, Scope, SearchEntry};
 use serde::{Deserialize, Serialize};
+use sqlx::Row;
 use tauri::State;
-
-const LDAP_SERVICE_DN: &str = "CN=stagdsi,CN=Users,DC=firsttrust,DC=cm";
-const LDAP_SERVICE_PASSWORD: &str = "Internal@2025";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -59,6 +57,10 @@ pub async fn cmd_ldap_login(
         return Err("Serveur non prêt — veuillez réessayer dans un instant.".to_string());
     }
 
+    if let Some(local) = load_local_user(&pool, &username).await? {
+        return login_local(local, &password, &pool, &jwt_secret).await;
+    }
+
     let ldap_url = if config.ldap_use_tls {
         format!("ldaps://{}:{}", config.ldap_host, config.ldap_port)
     } else {
@@ -71,7 +73,7 @@ pub async fn cmd_ldap_login(
         .map_err(|e| format!("Impossible de contacter le serveur LDAP : {e}"))?;
     ldap3::drive!(conn);
 
-    ldap.simple_bind(LDAP_SERVICE_DN, LDAP_SERVICE_PASSWORD)
+    ldap.simple_bind(&config.ldap_bind_dn, &config.ldap_bind_password)
         .await
         .map_err(|e| format!("Erreur bind compte de service : {e}"))?
         .success()
@@ -132,8 +134,8 @@ pub async fn cmd_ldap_login(
     // ── Étape 4 : upsert utilisateur en base ─────────────────────────────────
     let row = sqlx::query(
         r#"
-        INSERT INTO users (username, display_name, email, department, title, phone, ldap_dn, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+        INSERT INTO users (username, display_name, email, department, title, phone, ldap_dn, auth_source, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'ad', NOW())
         ON CONFLICT (username) DO UPDATE SET
             display_name = EXCLUDED.display_name,
             email        = EXCLUDED.email,
@@ -141,8 +143,10 @@ pub async fn cmd_ldap_login(
             title        = EXCLUDED.title,
             phone        = EXCLUDED.phone,
             ldap_dn      = EXCLUDED.ldap_dn,
+            auth_source  = 'ad',
             updated_at   = NOW()
-        RETURNING id, role, avatar_path, status_message, presence_status, session_version
+        WHERE users.auth_source IS DISTINCT FROM 'local'
+        RETURNING id, role, avatar_path, status_message, presence_status, session_version, is_active
         "#,
     )
     .bind(&username)
@@ -152,58 +156,25 @@ pub async fn cmd_ldap_login(
     .bind(&title)
     .bind(&phone)
     .bind(&user_dn)
-    .fetch_one(&pool)
+    .fetch_optional(&pool)
     .await
-    .map_err(|e| format!("Erreur base de données : {e}"))?;
+    .map_err(|e| format!("Erreur base de données : {e}"))?
+    .ok_or_else(|| "Ce compte est géré localement. Utilisez le mot de passe défini par l’administrateur.".to_string())?;
 
-    use sqlx::Row;
     let user_id: i32         = row.try_get("id").map_err(|e| e.to_string())?;
     let role: String         = row.try_get("role").map_err(|e| e.to_string())?;
     let avatar_path          = row.try_get::<Option<String>, _>("avatar_path").ok().flatten();
     let status_message       = row.try_get::<Option<String>, _>("status_message").ok().flatten();
     let session_version: i32 = row.try_get("session_version").unwrap_or(1);
+    let is_active: bool      = row.try_get("is_active").unwrap_or(true);
+    if !is_active {
+        return Err("Ce compte est désactivé. Contactez votre administrateur.".into());
+    }
 
-    // ── Étape 5 : présence online ─────────────────────────────────────────────
-    sqlx::query(
-        "INSERT INTO user_presence (user_id, status, last_heartbeat)
-         VALUES ($1, 'online', NOW())
-         ON CONFLICT (user_id) DO UPDATE SET status = 'online', last_heartbeat = NOW()",
-    )
-    .bind(user_id)
-    .execute(&pool)
-    .await
-    .ok();
-
-    // ── Étape 6 : génération JWT ──────────────────────────────────────────────
-    let now = Utc::now();
-    let claims = Claims {
-        sub: username.clone(),
-        user_id,
-        role: role.clone(),
-        session_version,
-        iat: now.timestamp(),
-        exp: (now + Duration::hours(8)).timestamp(),
-    };
-
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(jwt_secret.as_bytes()),
-    )
-    .map_err(|e| format!("Erreur JWT : {e}"))?;
-
-    // ── Étape 7 : audit log ───────────────────────────────────────────────────
-    sqlx::query(
-        "INSERT INTO audit_logs (actor_id, action, details) VALUES ($1, 'login', $2)",
-    )
-    .bind(user_id)
-    .bind(serde_json::json!({ "username": username }).to_string())
-    .execute(&pool)
-    .await
-    .ok();
-
-    Ok(LoginResult {
-        user: UserProfile {
+    finish_login(
+        &pool,
+        &jwt_secret,
+        UserProfile {
             id: user_id,
             username,
             display_name,
@@ -216,8 +187,137 @@ pub async fn cmd_ldap_login(
             presence_status: "online".to_string(),
             status_message,
         },
-        token,
-    })
+        session_version,
+    )
+    .await
+}
+
+struct LocalUser {
+    id: i32,
+    username: String,
+    display_name: String,
+    email: Option<String>,
+    department: Option<String>,
+    title: Option<String>,
+    phone: Option<String>,
+    avatar_path: Option<String>,
+    role: String,
+    status_message: Option<String>,
+    session_version: i32,
+    password_hash: String,
+    is_active: bool,
+}
+
+async fn load_local_user(pool: &sqlx::PgPool, username: &str) -> Result<Option<LocalUser>, String> {
+    let row = sqlx::query(
+        r#"
+        SELECT id, username, display_name, email, department, title, phone,
+               avatar_path, role, status_message, session_version, password_hash, is_active
+        FROM users
+        WHERE LOWER(username) = LOWER($1) AND auth_source = 'local'
+        "#,
+    )
+    .bind(username)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("Erreur base de données : {e}"))?;
+
+    Ok(row.map(|row| LocalUser {
+        id:               row.try_get("id").unwrap_or(0),
+        username:         row.try_get("username").unwrap_or_default(),
+        display_name:     row.try_get("display_name").unwrap_or_default(),
+        email:            row.try_get("email").ok().flatten(),
+        department:       row.try_get("department").ok().flatten(),
+        title:            row.try_get("title").ok().flatten(),
+        phone:            row.try_get("phone").ok().flatten(),
+        avatar_path:      row.try_get("avatar_path").ok().flatten(),
+        role:             row.try_get("role").unwrap_or_else(|_| "user".into()),
+        status_message:   row.try_get("status_message").ok().flatten(),
+        session_version:  row.try_get("session_version").unwrap_or(1),
+        password_hash:    row.try_get("password_hash").ok().flatten().unwrap_or_default(),
+        is_active:        row.try_get("is_active").unwrap_or(true),
+    }))
+}
+
+async fn login_local(
+    user: LocalUser,
+    password: &str,
+    pool: &sqlx::PgPool,
+    jwt_secret: &str,
+) -> Result<LoginResult, String> {
+    if !user.is_active {
+        return Err("Ce compte est désactivé. Contactez votre administrateur.".into());
+    }
+    if user.password_hash.is_empty()
+        || !bcrypt::verify(password, &user.password_hash).unwrap_or(false)
+    {
+        return Err("Identifiants incorrects".into());
+    }
+
+    finish_login(
+        pool,
+        jwt_secret,
+        UserProfile {
+            id: user.id,
+            username: user.username,
+            display_name: user.display_name,
+            email: user.email,
+            department: user.department,
+            title: user.title,
+            phone: user.phone,
+            avatar_path: user.avatar_path,
+            role: user.role,
+            presence_status: "online".to_string(),
+            status_message: user.status_message,
+        },
+        user.session_version,
+    )
+    .await
+}
+
+async fn finish_login(
+    pool: &sqlx::PgPool,
+    jwt_secret: &str,
+    user: UserProfile,
+    session_version: i32,
+) -> Result<LoginResult, String> {
+    sqlx::query(
+        "INSERT INTO user_presence (user_id, status, last_heartbeat)
+         VALUES ($1, 'online', NOW())
+         ON CONFLICT (user_id) DO UPDATE SET status = 'online', last_heartbeat = NOW()",
+    )
+    .bind(user.id)
+    .execute(pool)
+    .await
+    .ok();
+
+    let now = Utc::now();
+    let claims = Claims {
+        sub: user.username.clone(),
+        user_id: user.id,
+        role: user.role.clone(),
+        session_version,
+        iat: now.timestamp(),
+        exp: (now + Duration::hours(8)).timestamp(),
+    };
+
+    let token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(jwt_secret.as_bytes()),
+    )
+    .map_err(|e| format!("Erreur JWT : {e}"))?;
+
+    sqlx::query(
+        "INSERT INTO audit_logs (actor_id, action, details) VALUES ($1, 'login', $2)",
+    )
+    .bind(user.id)
+    .bind(serde_json::json!({ "username": user.username }).to_string())
+    .execute(pool)
+    .await
+    .ok();
+
+    Ok(LoginResult { user, token })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
