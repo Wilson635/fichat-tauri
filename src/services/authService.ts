@@ -194,6 +194,20 @@ export const authService = {
     }
     return tauriInvoke<AppConfig>("cmd_load_config");
   },
+
+  async getAutostart(): Promise<boolean> {
+    if (!isTauri()) return false;
+    try {
+      return await tauriInvoke<boolean>("cmd_get_autostart");
+    } catch {
+      return false;
+    }
+  },
+
+  async setAutostart(enabled: boolean): Promise<boolean> {
+    if (!isTauri()) return false;
+    return tauriInvoke<boolean>("cmd_set_autostart", { enabled });
+  },
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

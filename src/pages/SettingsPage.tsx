@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useThemeStore, AccentColor, FontSize, ChatBackground } from "@/store/themeStore";
 import { useAuthStore } from "@/store/authStore";
@@ -395,6 +395,13 @@ function NotificationsSection() {
   const [requesting, setRequesting] = useState(false);
   const [testState, setTestState] = useState<"idle" | "sending" | "ok" | "error">("idle");
   const [testError, setTestError] = useState("");
+  const [autostart, setAutostart] = useState(false);
+  const [autostartBusy, setAutostartBusy] = useState(false);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    authService.getAutostart().then(setAutostart).catch(() => {});
+  }, []);
 
   const soundOptions: { id: NotifSoundType; label: string; icon: IconName }[] = [
     { id: "message", label: "Doux", icon: "message" },
@@ -477,6 +484,37 @@ function NotificationsSection() {
           </button>
         </SettingsRow>
       </SettingsCard>
+
+      {isTauri() && (
+        <SettingsCard>
+          <SettingsRow
+            icon="laptop"
+            title="Arrière-plan"
+            description={`Fermer la fenêtre laisse ${APP_NAME} dans la barre d’état : les messages continuent d’arriver.`}
+          />
+          <SettingsRow
+            icon="bell"
+            title="Lancer avec Windows"
+            description={`Démarrer ${APP_NAME} en arrière-plan à l’ouverture de session, pour ne manquer aucune alerte.`}
+          >
+            <Toggle
+              on={autostart}
+              label="Lancer avec Windows"
+              onChange={async () => {
+                if (autostartBusy) return;
+                setAutostartBusy(true);
+                try {
+                  setAutostart(await authService.setAutostart(!autostart));
+                } catch {
+                  setAutostart(await authService.getAutostart());
+                } finally {
+                  setAutostartBusy(false);
+                }
+              }}
+            />
+          </SettingsRow>
+        </SettingsCard>
+      )}
 
       <SettingsCard>
         <div className="px-4 py-4">

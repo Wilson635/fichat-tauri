@@ -28,9 +28,11 @@ class WebSocketService {
   private ws: WebSocket | null = null;
   private listeners: WsEventListener[] = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
   private mockTimers: ReturnType<typeof setTimeout>[] = [];
   private connected = false;
   private channel: BroadcastChannel | null = null;
+  private allowReconnect = false;
 
   on(listener: WsEventListener) {
     this.listeners.push(listener);
@@ -44,6 +46,7 @@ class WebSocketService {
   }
 
   connect(token: string) {
+    this.allowReconnect = true;
     if (isTauri()) {
       this.connectNative(token);
     } else {
@@ -59,6 +62,7 @@ class WebSocketService {
 
     this.ws.onopen = () => {
       this.ws!.send(JSON.stringify({ type: "auth", token }));
+      this.startPing();
     };
 
     this.ws.onmessage = (e) => {
@@ -76,7 +80,8 @@ class WebSocketService {
     this.ws.onclose = () => {
       this.connected = false;
       this.ws = null;
-      // Auto-reconnect after 3 seconds
+      this.stopPing();
+      if (!this.allowReconnect) return;
       this.reconnectTimer = setTimeout(() => this.connectNative(token), 3000);
     };
 
@@ -130,7 +135,12 @@ class WebSocketService {
   }
 
   disconnect() {
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.allowReconnect = false;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.stopPing();
     this.mockTimers.forEach((t) => clearTimeout(t));
     this.mockTimers = [];
     this.ws?.close();
@@ -138,6 +148,22 @@ class WebSocketService {
     this.channel?.close();
     this.channel = null;
     this.connected = false;
+  }
+
+  private startPing() {
+    this.stopPing();
+    this.pingTimer = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: "ping" }));
+      }
+    }, 20000);
+  }
+
+  private stopPing() {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
   }
 
   sendTyping(conversationId: number) {

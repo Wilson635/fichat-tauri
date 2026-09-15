@@ -92,3 +92,14 @@ pub async fn cmd_load_config(
 
     AppConfig::load(&config_path).map_err(|e| format!("Config non trouvée : {e}"))
 }
+
+#[tauri::command]
+pub fn cmd_get_autostart() -> bool {
+    crate::background::is_autostart_enabled()
+}
+
+#[tauri::command]
+pub fn cmd_set_autostart(enabled: bool) -> Result<bool, String> {
+    crate::background::set_autostart_enabled(enabled)?;
+    Ok(crate::background::is_autostart_enabled())
+}

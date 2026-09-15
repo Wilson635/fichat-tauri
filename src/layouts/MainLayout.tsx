@@ -21,6 +21,26 @@ export function MainLayout() {
   }, []);
 
   useEffect(() => {
+    if (!isTauri() || !("locks" in navigator)) return;
+    let released = false;
+    const abort = new AbortController();
+    navigator.locks
+      .request("fiecho-background", { signal: abort.signal }, () => new Promise<void>((resolve) => {
+        const stop = () => {
+          if (!released) {
+            released = true;
+            resolve();
+          }
+        };
+        window.addEventListener("beforeunload", stop);
+      }))
+      .catch(() => {});
+    return () => {
+      abort.abort();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!notifGranted) {
       if (isTauri()) {
         requestNotificationPermission().then(setNotifGranted);

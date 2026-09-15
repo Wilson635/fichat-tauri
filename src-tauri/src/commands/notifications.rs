@@ -212,11 +212,7 @@ pub async fn cmd_send_priority_notification(
             if let Some(cid) = conv {
                 let _ = app_open.emit("priority-open-conversation", cid);
             }
-            if let Some(main) = app_open.get_webview_window("main") {
-                let _ = main.show();
-                let _ = main.unminimize();
-                let _ = main.set_focus();
-            }
+            crate::background::show_main(&app_open);
         }
 
         if let Ok(mut slot) = tx.lock() {
@@ -448,10 +444,6 @@ pub async fn cmd_request_notification_permission(
 
 #[tauri::command]
 pub async fn cmd_focus_window(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("main") {
-        window.show().map_err(|e| e.to_string())?;
-        window.unminimize().map_err(|e| e.to_string())?;
-        window.set_focus().map_err(|e| e.to_string())?;
-    }
+    crate::background::show_main(&app);
     Ok(())
 }

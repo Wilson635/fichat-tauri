@@ -4,6 +4,7 @@ mod db;
 mod log_buffer;
 mod pg_notify;
 mod ws;
+mod background;
 
 use std::sync::Arc;
 use tauri::Manager;
@@ -46,6 +47,9 @@ pub fn run() {
     let state: SharedState = Arc::new(Mutex::new(AppState::new()));
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            background::show_main(app);
+        }))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
@@ -53,6 +57,9 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(state.clone())
         .setup(move |app| {
+            background::setup_tray(app)?;
+            background::hide_on_autostart(app);
+            background::ensure_default_autostart();
             let app_handle = app.handle().clone();
             log_buffer::set_app_handle(app_handle.clone());
             let state_clone = state.clone();
@@ -112,7 +119,21 @@ pub fn run() {
             commands::notifications::cmd_request_notification_permission,
             commands::notifications::cmd_focus_window,
             commands::notifications::cmd_test_notification,
+            commands::app::cmd_get_autostart,
+            commands::app::cmd_set_autostart,
         ])
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if background::should_exit() {
+                    return;
+                }
+                api.prevent_close();
+                background::hide_to_tray(window);
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running FiEcho");
 }

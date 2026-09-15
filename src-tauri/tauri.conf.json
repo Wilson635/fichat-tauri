@@ -23,16 +23,19 @@
         "fullscreen": false,
         "center": true,
         "decorations": true,
-        "transparent": false
+        "transparent": false,
+        "backgroundThrottling": "disabled",
+        "additionalBrowserArgs": "--disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows"
       }
     ],
     "security": {
       "csp": null
     },
     "trayIcon": {
+      "id": "main",
       "iconPath": "icons/icon.png",
       "title": "FiEcho",
-      "tooltip": "FiEcho"
+      "tooltip": "FiEcho — actif en arrière-plan"
     }
   },
   "bundle": {
