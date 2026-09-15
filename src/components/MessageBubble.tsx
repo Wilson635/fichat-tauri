@@ -7,6 +7,14 @@ import { formatFileSize, isImage, isVideo, isAudio, fileKind } from "@/utils/fil
 import { useAttachmentUrl, downloadAttachment, previewSrc } from "@/utils/attachmentUrl";
 import { Icon } from "@/components/Icon";
 import { AttachmentVisualPreview, DocMetaRow } from "@/components/DocPreview";
+import {
+    audioPlaybackKey,
+    isPlayableAudioAttachment,
+    notifyAudioEnded,
+    notifyAudioPaused,
+    registerAudioPlayer,
+    requestAudioPlay,
+} from "@/utils/audioPlayback";
 
 export function formatDateSeparator(iso: string): string {
     const d = new Date(iso);
@@ -151,13 +159,24 @@ function DocCard({
     );
 }
 
-function AudioPlayer({ attachment, isOwn }: { attachment: AttachmentDto; isOwn: boolean; voice?: boolean }) {
+function AudioPlayer({
+    attachment,
+    isOwn,
+    playbackKey,
+}: {
+    attachment: AttachmentDto;
+    isOwn: boolean;
+    voice?: boolean;
+    playbackKey: string;
+}) {
     const encoded = parseVoiceDuration(attachment.fileName);
     const [playing, setPlaying] = useState(false);
     const [progress, setProgress] = useState(0);
     const [elapsed, setElapsed] = useState(0);
     const [duration, setDuration] = useState<number | null>(encoded);
     const audioRef = useRef<HTMLAudioElement>(null);
+    const wantPlayRef = useRef(false);
+    const startedRef = useRef(false);
     const { url, loading } = useAttachmentUrl(attachment);
 
     const knownTotal = () => finiteSeconds(audioRef.current?.duration) ?? duration;
@@ -168,16 +187,45 @@ function AudioPlayer({ attachment, isOwn }: { attachment: AttachmentDto; isOwn: 
         setDuration((prev) => (prev == null || Math.abs(prev - next) > 0.4 ? next : prev));
     }, []);
 
-    const toggle = () => {
+    const startPlayback = useCallback(() => {
+        wantPlayRef.current = true;
+        startedRef.current = true;
         const a = audioRef.current;
-        if (!a || !url) return;
-        if (playing) {
-            a.pause();
-            setPlaying(false);
-        } else {
-            a.play().catch(() => {});
+        if (!a) return;
+        a.play().catch(() => {});
+        setPlaying(true);
+    }, []);
+
+    const stopPlayback = useCallback(() => {
+        wantPlayRef.current = false;
+        startedRef.current = false;
+        const a = audioRef.current;
+        if (a && !a.paused) a.pause();
+        setPlaying(false);
+    }, []);
+
+    useEffect(() => {
+        return registerAudioPlayer(playbackKey, {
+            play: startPlayback,
+            pause: stopPlayback,
+        });
+    }, [playbackKey, startPlayback, stopPlayback]);
+
+    useEffect(() => {
+        if (url && wantPlayRef.current && audioRef.current) {
+            audioRef.current.play().catch(() => {});
             setPlaying(true);
         }
+    }, [url]);
+
+    const toggle = () => {
+        if (playing) {
+            stopPlayback();
+            notifyAudioPaused(playbackKey);
+            return;
+        }
+        if (!url) return;
+        requestAudioPlay(playbackKey);
     };
 
     const seek = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -202,6 +250,7 @@ function AudioPlayer({ attachment, isOwn }: { attachment: AttachmentDto; isOwn: 
                     ref={audioRef}
                     src={url}
                     preload="metadata"
+                    data-playback-key={playbackKey}
                     onLoadedMetadata={() => {
                         const a = audioRef.current;
                         if (!a) return;
@@ -227,6 +276,10 @@ function AudioPlayer({ attachment, isOwn }: { attachment: AttachmentDto; isOwn: 
                             a.removeEventListener("seeked", onSeeked);
                         }
                     }}
+                    onPlay={() => setPlaying(true)}
+                    onPause={() => {
+                        if (!audioRef.current?.ended) setPlaying(false);
+                    }}
                     onTimeUpdate={() => {
                         const a = audioRef.current;
                         if (!a) return;
@@ -238,9 +291,13 @@ function AudioPlayer({ attachment, isOwn }: { attachment: AttachmentDto; isOwn: 
                     onEnded={() => {
                         const a = audioRef.current;
                         applyKnown(a?.currentTime);
+                        const chain = startedRef.current;
+                        wantPlayRef.current = false;
+                        startedRef.current = false;
                         setPlaying(false);
                         setProgress(0);
                         setElapsed(0);
+                        if (chain) notifyAudioEnded(playbackKey);
                     }}
                 />
             )}
@@ -419,14 +476,23 @@ function AttachmentView({
     isOwn,
     onOpen,
     messageType,
+    messageId,
 }: {
     attachment: AttachmentDto;
     isOwn: boolean;
     onOpen: (a: AttachmentDto) => void;
     messageType?: string;
+    messageId: number;
 }) {
-    if (isVoiceAttachment(messageType, attachment) || isAudio(attachment.fileType, attachment.fileName)) {
-        return <AudioPlayer attachment={attachment} isOwn={isOwn} voice={isVoiceAttachment(messageType, attachment)} />;
+    if (isPlayableAudioAttachment(messageType, attachment)) {
+        return (
+            <AudioPlayer
+                attachment={attachment}
+                isOwn={isOwn}
+                voice={isVoiceAttachment(messageType, attachment)}
+                playbackKey={audioPlaybackKey(messageId, attachment.id)}
+            />
+        );
     }
     if (isImage(attachment.fileType, attachment.fileName)) {
         return <ImageAttachment attachment={attachment} isOwn={isOwn} onOpen={() => onOpen(attachment)} />;
@@ -796,6 +862,7 @@ export function MessageBubble({ message, showSenderName, onReply, onEdit, onDele
                                     key={att.id}
                                     attachment={att}
                                     isOwn={isOwn}
+                                    messageId={message.id}
                                     messageType={message.messageType}
                                     onOpen={(a) => onOpenPreview?.(a)}
                                 />

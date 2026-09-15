@@ -11,6 +11,7 @@ import { FilePreviewModal } from "@/components/FilePreviewModal";
 import { Icon } from "@/components/Icon";
 import type { MessageDto, AttachmentDto } from "@/services/chatService";
 import { isSameDay } from "date-fns";
+import { setAudioSequence } from "@/utils/audioPlayback";
 
 function shouldShowDateSeparator(prev: MessageDto | null, curr: MessageDto): boolean {
   if (!prev) return true;
@@ -85,6 +86,10 @@ export function ChatPage() {
       setCurrentConversation(null);
     };
   }, [convId]);
+
+  useEffect(() => {
+    setAudioSequence(messages);
+  }, [messages]);
 
   // Detect new incoming messages while scrolled up → increment unread bubble
   useEffect(() => {

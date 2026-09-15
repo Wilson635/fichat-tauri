@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { AttachmentDto } from "@/services/chatService";
 import { formatFileSize, isImage, isVideo, isAudio, isPdf } from "@/utils/fileUtils";
 import { getAttachmentObjectUrl, downloadAttachment, isInlineSrc } from "@/utils/attachmentUrl";
+import { ensureExclusiveAudio } from "@/utils/audioPlayback";
 
 interface Props {
   attachment: AttachmentDto;
@@ -37,6 +38,10 @@ export function FilePreviewModal({ attachment, senderName, onClose }: Props) {
   });
 
   const dragRef = useRef<{ mode: "move" | "resize"; sx: number; sy: number; sw: number; sh: number; px: number; py: number } | null>(null);
+
+  useEffect(() => {
+    ensureExclusiveAudio();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
