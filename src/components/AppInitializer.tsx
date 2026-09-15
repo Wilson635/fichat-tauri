@@ -22,6 +22,8 @@ import { useAuthStore } from "@/store/authStore";
 import { useAppStore } from "@/store/appStore";
 import { authService } from "@/services/authService";
 import { migrateFromLocalStorage } from "@/services/secureStorage";
+import { Icon } from "@/components/Icon";
+import { startRuntimeLogCapture } from "@/store/runtimeLogStore";
 
 interface AppInitializerProps {
   children: React.ReactNode;
@@ -32,6 +34,10 @@ export function AppInitializer({ children }: AppInitializerProps) {
   const { token, setSessionChecked, clearAuth } = useAuthStore();
   const { setConfig, setDbConnected, setInitializing, isInitializing } =
     useAppStore();
+
+  useEffect(() => {
+    startRuntimeLogCapture().catch(() => {});
+  }, []);
 
   // Run the init sequence only AFTER Zustand has fully rehydrated from
   // secureStorage, so `token` reflects the persisted value.
@@ -139,44 +145,12 @@ export function AppInitializer({ children }: AppInitializerProps) {
         style={{ backgroundColor: "var(--color-surface)" }}
       >
         <div
-          className="w-16 h-16 rounded-full flex items-center justify-center"
+          className="w-16 h-16 rounded-2xl flex items-center justify-center"
           style={{ backgroundColor: "var(--color-primary-500)" }}
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="w-8 h-8 text-white"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
-            />
-          </svg>
+          <Icon name="message" size={30} style={{ color: "#fff" }} />
         </div>
-        <svg
-          className="animate-spin w-6 h-6"
-          fill="none"
-          viewBox="0 0 24 24"
-          style={{ color: "var(--color-primary-500)" }}
-        >
-          <circle
-            className="opacity-25"
-            cx="12"
-            cy="12"
-            r="10"
-            stroke="currentColor"
-            strokeWidth="4"
-          />
-          <path
-            className="opacity-75"
-            fill="currentColor"
-            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-          />
-        </svg>
+        <Icon name="loader" size={22} className="animate-spin" style={{ color: "var(--color-primary-500)" }} />
         <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
           Chargement…
         </p>

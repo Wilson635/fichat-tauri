@@ -9,6 +9,7 @@ import { MessageInput } from "@/components/MessageInput";
 import { GroupDetailsPanel } from "@/components/GroupDetailsPanel";
 import { UserProfilePanel } from "@/components/UserProfilePanel";
 import { FilePreviewModal } from "@/components/FilePreviewModal";
+import { Icon } from "@/components/Icon";
 import type { MessageDto, AttachmentDto } from "@/services/chatService";
 import { isSameDay } from "date-fns";
 
@@ -217,8 +218,8 @@ export function ChatPage() {
   }, [convId, openDelete]);
 
   const handleSendFile = useCallback(
-      (file: File, thumbnail: string | null, dataUrl: string, caption: string, replyToId?: number) => {
-        sendFileMessage(convId, caption, file, thumbnail, dataUrl, replyToId);
+      (file: File, thumbnail: string | null, dataUrl: string, caption: string, replyToId?: number, messageType?: "voice" | "image" | "file" | "video") => {
+        sendFileMessage(convId, caption, file, thumbnail, dataUrl, replyToId, messageType);
         setReplyTo(null);
       },
       [convId, sendFileMessage],
@@ -267,36 +268,33 @@ export function ChatPage() {
 
           {/* ── Header ─────────────────────────────────────────────── */}
           <div
-              className="flex items-center gap-3 px-4 py-3 shrink-0 border-b"
+              className="flex items-center gap-3 px-4 shrink-0"
               style={{
+                height: 60,
                 backgroundColor: "var(--color-header-bg)",
-                borderColor: "var(--color-border)",
+                borderBottom: "1px solid var(--color-border)",
               }}
           >
-            {/* Back button on narrow screens */}
             <button
                 onClick={() => navigate("/")}
-                className="md:hidden w-8 h-8 flex items-center justify-center rounded-full"
+                className="md:hidden icon-btn"
                 style={{ color: "var(--color-text-muted)" }}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-              </svg>
+              <Icon name="chevronLeft" size={20} />
             </button>
 
-            {/* Avatar + name — clickable to open panel */}
             <button
                 onClick={handleHeaderClick}
                 className="flex items-center gap-3 flex-1 min-w-0 text-left"
             >
               <div className="relative shrink-0">
                 {conversation.avatarPath ? (
-                    <img src={conversation.avatarPath} alt={conversation.name} className="w-10 h-10 rounded-full object-cover" />
+                    <img src={conversation.avatarPath} alt={conversation.name} className="w-10 h-10 rounded-xl object-cover" />
                 ) : (
                     <div
-                        className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm"
+                        className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-semibold text-[12px]"
                         style={{
-                          backgroundColor: `hsl(${conversation.name.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 360}, 55%, 45%)`,
+                          backgroundColor: `hsl(${conversation.name.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 360}, 48%, 46%)`,
                         }}
                     >
                       {conversation.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
@@ -304,19 +302,18 @@ export function ChatPage() {
                 )}
                 {presenceStatus && presenceStatus !== "offline" && (
                     <span
-                        className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2"
+                        className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2"
                         style={{ backgroundColor: presenceColors[presenceStatus], borderColor: "var(--color-header-bg)" }}
                     />
                 )}
               </div>
 
-              {/* Name & status */}
               <div className="flex-1 min-w-0">
-                <h2 className="font-semibold text-sm truncate" style={{ color: "var(--color-text-primary)" }}>
+                <h2 className="font-semibold text-[14px] truncate tracking-tight" style={{ color: "var(--color-text-primary)" }}>
                   {conversation.name}
                 </h2>
                 {isGroup ? (
-                    <p className="text-xs truncate" style={{ color: "var(--color-text-muted)" }}>
+                    <p className="text-[11px] truncate font-medium" style={{ color: "var(--color-text-muted)" }}>
                       {conversation.participants.length} participants
                       {otherParticipants.filter((p) => p.presenceStatus === "online").length > 0 && (
                           <> · {otherParticipants.filter((p) => p.presenceStatus === "online").length} en ligne</>
@@ -324,7 +321,7 @@ export function ChatPage() {
                     </p>
                 ) : (
                     presenceStatus && (
-                        <p className="text-xs" style={{ color: presenceColors[presenceStatus] }}>
+                        <p className="text-[11px] font-medium" style={{ color: presenceColors[presenceStatus] }}>
                           {presenceLabels[presenceStatus]}
                         </p>
                     )
@@ -332,28 +329,22 @@ export function ChatPage() {
               </div>
             </button>
 
-            {/* Actions */}
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-0.5 shrink-0">
               <button
                   onClick={() => setSearchOpen((v) => !v)}
-                  className="w-9 h-9 flex items-center justify-center rounded-full transition-colors"
-                  style={{ color: searchOpen ? "var(--color-primary-500)" : "var(--color-text-muted)" }}
+                  className="icon-btn"
+                  style={{ color: searchOpen ? "var(--color-primary-500)" : undefined }}
                   title="Rechercher"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
+                <Icon name="search" size={18} />
               </button>
-              {/* Info panel toggle */}
               <button
                   onClick={handleHeaderClick}
-                  className="w-9 h-9 flex items-center justify-center rounded-full transition-colors"
-                  style={{ color: showPanel ? "var(--color-primary-500)" : "var(--color-text-muted)" }}
+                  className="icon-btn"
+                  style={{ color: showPanel ? "var(--color-primary-500)" : undefined }}
                   title={isGroup ? "Infos groupe" : "Profil"}
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <Icon name="info" size={18} />
               </button>
             </div>
           </div>
@@ -368,9 +359,7 @@ export function ChatPage() {
                     className="flex items-center gap-2 rounded-lg px-3 py-2"
                     style={{ backgroundColor: "var(--color-surface)" }}
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "var(--color-text-muted)" }}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
+                  <Icon name="search" size={16} style={{ color: "var(--color-text-muted)" }} />
                   <input
                       autoFocus
                       type="text"
@@ -382,9 +371,7 @@ export function ChatPage() {
                   />
                   {searchQuery && (
                       <button onClick={() => setSearchQuery("")} style={{ color: "var(--color-text-muted)" }}>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
+                        <Icon name="x" size={16} />
                       </button>
                   )}
                 </div>
@@ -406,10 +393,7 @@ export function ChatPage() {
             {hasMoreMessages[convId] && (
                 <div className="flex justify-center py-3">
                   {isLoadingMessages ? (
-                      <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24" style={{ color: "var(--color-primary-500)" }}>
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
+                  <Icon name="loader" size={20} className="animate-spin" style={{ color: "var(--color-primary-500)" }} />
                   ) : (
                       <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
                 Défiler pour charger plus
@@ -420,10 +404,7 @@ export function ChatPage() {
 
             {isLoadingMessages && messages.length === 0 ? (
                 <div className="flex justify-center py-8">
-                  <svg className="animate-spin w-6 h-6" fill="none" viewBox="0 0 24 24" style={{ color: "var(--color-primary-500)" }}>
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
+                  <Icon name="loader" size={24} className="animate-spin" style={{ color: "var(--color-primary-500)" }} />
                 </div>
             ) : filteredMessages.length === 0 && searchQuery ? (
                 <div className="flex flex-col items-center justify-center py-16 gap-2">
@@ -508,9 +489,7 @@ export function ChatPage() {
                     className="w-10 h-10 rounded-full flex items-center justify-center"
                     style={{ backgroundColor: "var(--color-surface)", color: "var(--color-primary-500)", border: "1px solid var(--color-border)" }}
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
+                  <Icon name="chevronDown" size={18} />
                 </div>
               </button>
           )}

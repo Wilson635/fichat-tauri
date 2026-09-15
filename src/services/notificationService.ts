@@ -61,6 +61,7 @@ export async function sendToastNotification(opts: {
 export async function sendPriorityNotification(opts: {
   title: string;
   body: string;
+  conversationId?: number;
 }): Promise<void> {
   if (isTauri()) {
     try {
@@ -68,6 +69,7 @@ export async function sendPriorityNotification(opts: {
       await invoke("cmd_send_priority_notification", {
         title: opts.title,
         body: opts.body,
+        conversationId: opts.conversationId ?? null,
       });
     } catch (e) {
       console.warn("Priority notification failed:", e);

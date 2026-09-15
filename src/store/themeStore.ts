@@ -6,11 +6,11 @@ export type ThemeMode = "light" | "dark" | "system";
 export type AccentColor = "green" | "blue" | "purple" | "orange" | "red";
 export type FontSize = "small" | "medium" | "large";
 export type ChatBackground =
-  | "default"         // WhatsApp beige / dark navy
-  | "white"           // clean white / dark purple
-  | "dark"            // near-black
-  | "pattern-dots"    // subtle dot grid
-  | "pattern-bubble"; // WhatsApp-style chat bubble pattern
+  | "default"         // soft teal / warm-gray mesh
+  | "white"           // ivory paper
+  | "dark"            // product night
+  | "pattern-dots"    // linen weave
+  | "pattern-bubble"; // diamond lattice
 
 /** Map legacy ChatBackground ids (from old persisted data) to current ids. */
 const LEGACY_BG_MAP: Record<string, ChatBackground> = {

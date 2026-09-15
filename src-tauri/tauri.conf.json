@@ -10,9 +10,11 @@
     "beforeBuildCommand": "npm run build"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "FiChat",
+        "label": "main",
         "width": 1200,
         "height": 750,
         "minWidth": 800,

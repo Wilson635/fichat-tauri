@@ -135,7 +135,12 @@ pub async fn cmd_get_conversations(
                 ELSE NULL
             END                                                           AS created_by_name,
             (
-                SELECT LEFT(m.content, 100)
+                SELECT CASE
+                    WHEN m.message_type = 'voice' THEN '🎤 Message vocal'
+                    WHEN m.message_type = 'image' THEN COALESCE(NULLIF(LEFT(m.content, 100), ''), '📷 Photo')
+                    WHEN m.message_type = 'file' THEN COALESCE(NULLIF(LEFT(m.content, 100), ''), '📎 Fichier')
+                    ELSE LEFT(m.content, 100)
+                END
                 FROM messages m
                 WHERE m.conversation_id = c.id AND m.is_deleted = false
                 ORDER BY m.created_at DESC LIMIT 1
@@ -509,43 +514,7 @@ pub async fn cmd_send_message(
         attachments: vec![],
     };
 
-    // ── Récupère les participants ──────────────────────────────────────────────
-    let participant_ids: Vec<(i32,)> = sqlx::query_as(
-        "SELECT user_id FROM conversation_participants WHERE conversation_id = $1",
-    )
-    .bind(conversation_id)
-    .fetch_all(&pool)
-    .await
-    .unwrap_or_default();
-    let user_ids: Vec<i64> = participant_ids.into_iter().map(|(id,)| id as i64).collect();
-
-    // ── Broadcast WS local (même machine) ─────────────────────────────────────
-    if let Some(hub) = hub {
-        let event = ws::ServerEvent::NewMessage {
-            conversation_id: conversation_id as i64,
-            message: serde_json::to_value(&dto).unwrap_or_default(),
-        };
-        tracing::info!("cmd_send_message: broadcast local vers {} participants", user_ids.len());
-        hub.broadcast_to_users(&user_ids, &event).await;
-    }
-
-    // ── pg_notify : diffusion vers TOUTES les machines du réseau ─────────────
-    // Chaque instance Tauri écoute 'fichat_messages' via PgListener.
-    // La déduplication (même message_id) est gérée côté frontend.
-    let notify_payload = serde_json::json!({
-        "conversation_id": conversation_id as i64,
-        "participant_ids": user_ids,
-        "message": serde_json::to_value(&dto).unwrap_or_default(),
-    });
-    if let Err(e) = sqlx::query("SELECT pg_notify('fichat_messages', $1)")
-        .bind(notify_payload.to_string())
-        .execute(&pool)
-        .await
-    {
-        tracing::warn!("pg_notify fichat_messages failed: {}", e);
-    } else {
-        tracing::info!("pg_notify fichat_messages envoyé pour conv={}", conversation_id);
-    }
+    notify_new_message(&pool, hub, conversation_id, &dto).await;
 
     Ok(dto)
 }
@@ -1391,6 +1360,7 @@ pub async fn cmd_send_message_with_file(
     file_type: String,
     file_size: i64,
     reply_to_id: Option<i32>,
+    message_type: Option<String>,
     state: State<'_, SharedState>,
     app_handle: tauri::AppHandle,
 ) -> Result<MessageDto, String> {
@@ -1421,43 +1391,62 @@ pub async fn cmd_send_message_with_file(
         return Err("Accès refusé à cette conversation".to_string());
     }
 
-    // ── Save file to disk ──────────────────────────────────────────────────────
-    let attachments_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Répertoire données inaccessible: {e}"))?
-        .join("attachments");
-
-    std::fs::create_dir_all(&attachments_dir)
-        .map_err(|e| format!("Erreur création répertoire: {e}"))?;
+    const MAX_FILE_BYTES: i64 = 50 * 1024 * 1024;
+    if file_size > MAX_FILE_BYTES {
+        return Err("Fichier trop volumineux (maximum 50 Mo)".to_string());
+    }
 
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(&base64_data)
         .map_err(|e| format!("Erreur décodage base64: {e}"))?;
 
-    // Sanitize filename
+    if bytes.len() as i64 > MAX_FILE_BYTES {
+        return Err("Fichier trop volumineux (maximum 50 Mo)".to_string());
+    }
+
+    // Local cache (sender machine) — source of truth is PostgreSQL BYTEA so
+    // every participant can retrieve the file, not only the sender.
+    let attachments_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Répertoire données inaccessible: {e}"))?
+        .join("attachments");
+    let _ = std::fs::create_dir_all(&attachments_dir);
+
     let safe_name: String = file_name
         .chars()
         .map(|c| if "/\\:*?\"<>|".contains(c) { '_' } else { c })
         .collect();
     let unique_name = format!("{}_{}", uuid::Uuid::new_v4().as_simple(), safe_name);
-    let file_path = attachments_dir.join(&unique_name);
-    std::fs::write(&file_path, &bytes)
-        .map_err(|e| format!("Erreur sauvegarde fichier: {e}"))?;
-    let file_path_str = file_path.to_string_lossy().to_string();
+    let cache_path = attachments_dir.join(&unique_name);
+    if let Err(e) = std::fs::write(&cache_path, &bytes) {
+        tracing::warn!("cache local pièce jointe impossible: {e}");
+    }
+    let file_path_str = cache_path.to_string_lossy().to_string();
 
-    tracing::info!("cmd_send_message_with_file: fichier sauvegardé → {}", file_path_str);
+    tracing::info!(
+        "cmd_send_message_with_file: {} octets (cache={})",
+        bytes.len(),
+        file_path_str
+    );
 
-    // ── Insert message ─────────────────────────────────────────────────────────
-    let msg_type = if file_type.starts_with("image/") { "image" } else { "file" };
+    let msg_type = message_type
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| {
+            if file_type.starts_with("image/") {
+                "image".into()
+            } else {
+                "file".into()
+            }
+        });
     let row = sqlx::query(
         "INSERT INTO messages (conversation_id, sender_id, content, message_type, reply_to_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at",
     )
     .bind(conversation_id)
     .bind(uid)
     .bind(if content.is_empty() { None } else { Some(content.as_str()) })
-    .bind(msg_type)
+    .bind(&msg_type)
     .bind(reply_to_id)
     .fetch_one(&pool)
     .await
@@ -1466,9 +1455,9 @@ pub async fn cmd_send_message_with_file(
     let msg_id: i32 = row.try_get::<i32, _>("id").map_err(|e| format!("Erreur lecture id: {e}"))?;
     let created_at: DateTime<Utc> = row.try_get("created_at").unwrap_or_else(|_| Utc::now());
 
-    // ── Insert attachment ──────────────────────────────────────────────────────
+    // ── Insert attachment (bytes in DB so all recipients can read them) ───────
     let att_row = sqlx::query(
-        "INSERT INTO attachments (message_id, file_name, file_path, file_type, file_size, thumbnail) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+        "INSERT INTO attachments (message_id, file_name, file_path, file_type, file_size, thumbnail, file_data) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
     )
     .bind(msg_id)
     .bind(&file_name)
@@ -1476,6 +1465,7 @@ pub async fn cmd_send_message_with_file(
     .bind(&file_type)
     .bind(file_size)
     .bind(&thumbnail)
+    .bind(&bytes)
     .fetch_one(&pool)
     .await
     .map_err(|e| { tracing::error!("cmd_send_message_with_file INSERT attachment: {}", e); format!("Erreur insertion pièce jointe: {e}") })?;
@@ -1519,7 +1509,7 @@ pub async fn cmd_send_message_with_file(
         sender_name: sender_name.clone(),
         sender_avatar: sender_avatar.clone(),
         content: if content.is_empty() { None } else { Some(content) },
-        message_type: msg_type.to_string(),
+        message_type: msg_type.clone(),
         reply_to_id,
         reply_to_content: None,
         is_edited: false,
@@ -1529,23 +1519,7 @@ pub async fn cmd_send_message_with_file(
         attachments: vec![att_dto],
     };
 
-    // ── WS broadcast ───────────────────────────────────────────────────────────
-    if let Some(hub) = hub {
-        let participant_ids: Vec<(i32,)> = sqlx::query_as(
-            "SELECT user_id FROM conversation_participants WHERE conversation_id = $1",
-        )
-        .bind(conversation_id)
-        .fetch_all(&pool)
-        .await
-        .unwrap_or_default();
-
-        let user_ids: Vec<i64> = participant_ids.into_iter().map(|(id,)| id as i64).collect();
-        let event = ws::ServerEvent::NewMessage {
-            conversation_id: conversation_id as i64,
-            message: serde_json::to_value(&dto).unwrap_or_default(),
-        };
-        hub.broadcast_to_users(&user_ids, &event).await;
-    }
+    notify_new_message(&pool, hub, conversation_id, &dto).await;
 
     tracing::info!("cmd_send_message_with_file: message id={} avec pièce jointe id={}", msg_id, att_id);
     Ok(dto)
@@ -1553,28 +1527,119 @@ pub async fn cmd_send_message_with_file(
 
 // ─── GET FILE AS BASE64 ────────────────────────────────────────────────────────
 
+#[derive(Debug, Serialize)]
+pub struct AttachmentDataDto {
+    pub file_name: String,
+    pub file_type: Option<String>,
+    pub base64: String,
+}
+
 #[tauri::command]
-pub async fn cmd_get_file_as_base64(
+pub async fn cmd_get_attachment_data(
     token: String,
-    file_path: String,
+    attachment_id: i32,
     state: State<'_, SharedState>,
-) -> Result<String, String> {
-    let (_pool, jwt_secret) = {
+) -> Result<AttachmentDataDto, String> {
+    let (pool, jwt_secret) = {
         let s = state.lock().await;
         (
             s.db_pool.clone().ok_or("Base de données non connectée")?,
             s.jwt_secret.clone(),
         )
     };
-    extract_uid(&token, &jwt_secret)?;
+    let uid = extract_uid(&token, &jwt_secret)?;
+
+    let row = sqlx::query(
+        r#"
+        SELECT a.file_name, a.file_type, a.file_path, a.file_data
+        FROM attachments a
+        JOIN messages m ON m.id = a.message_id
+        JOIN conversation_participants cp
+          ON cp.conversation_id = m.conversation_id AND cp.user_id = $1
+        WHERE a.id = $2
+        "#,
+    )
+    .bind(uid)
+    .bind(attachment_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| format!("Erreur DB: {e}"))?
+    .ok_or_else(|| "Pièce jointe introuvable ou accès refusé".to_string())?;
+
+    let file_name: String = row.try_get("file_name").unwrap_or_default();
+    let file_type: Option<String> = row.try_get("file_type").ok().flatten();
+    let file_path: String = row.try_get("file_path").unwrap_or_default();
+    let file_data: Option<Vec<u8>> = row.try_get("file_data").ok().flatten();
+
+    let bytes = if let Some(data) = file_data.filter(|d| !d.is_empty()) {
+        data
+    } else {
+        std::fs::read(&file_path).map_err(|e| {
+            format!("Fichier inaccessible pour les destinataires (données absentes du serveur): {e}")
+        })?
+    };
+
+    use base64::Engine;
+    Ok(AttachmentDataDto {
+        file_name,
+        file_type,
+        base64: base64::engine::general_purpose::STANDARD.encode(&bytes),
+    })
+}
+
+#[tauri::command]
+pub async fn cmd_get_file_as_base64(
+    token: String,
+    file_path: String,
+    attachment_id: Option<i32>,
+    state: State<'_, SharedState>,
+) -> Result<String, String> {
+    if let Some(id) = attachment_id {
+        return Ok(cmd_get_attachment_data(token, id, state).await?.base64);
+    }
+
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    let uid = extract_uid(&token, &jwt_secret)?;
 
     tracing::debug!("cmd_get_file_as_base64: {}", file_path);
 
-    let bytes = std::fs::read(&file_path)
-        .map_err(|e| format!("Fichier introuvable: {e}"))?;
+    if let Ok(bytes) = std::fs::read(&file_path) {
+        use base64::Engine;
+        return Ok(base64::engine::general_purpose::STANDARD.encode(&bytes));
+    }
 
-    use base64::Engine;
-    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+    let row = sqlx::query(
+        r#"
+        SELECT a.file_data
+        FROM attachments a
+        JOIN messages m ON m.id = a.message_id
+        JOIN conversation_participants cp
+          ON cp.conversation_id = m.conversation_id AND cp.user_id = $1
+        WHERE a.file_path = $2
+        LIMIT 1
+        "#,
+    )
+    .bind(uid)
+    .bind(&file_path)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| format!("Erreur DB: {e}"))?;
+
+    if let Some(row) = row {
+        let file_data: Option<Vec<u8>> = row.try_get("file_data").ok().flatten();
+        if let Some(bytes) = file_data.filter(|d| !d.is_empty()) {
+            use base64::Engine;
+            return Ok(base64::engine::general_purpose::STANDARD.encode(&bytes));
+        }
+    }
+
+    Err("Fichier introuvable: il n'est plus disponible sur cette machine. Le fichier doit être renvoyé pour être partagé avec tous les destinataires.".into())
 }
 
 // ─── GET CONVERSATION MEDIA ────────────────────────────────────────────────────
@@ -1723,6 +1788,50 @@ pub async fn cmd_delete_message(
 
     broadcast_message_update(&pool, hub, conversation_id, message_id).await;
     Ok(())
+}
+
+async fn notify_new_message(
+    pool: &sqlx::PgPool,
+    hub: Option<std::sync::Arc<crate::ws::WsHub>>,
+    conversation_id: i32,
+    dto: &MessageDto,
+) {
+    let participant_ids: Vec<(i32,)> = sqlx::query_as(
+        "SELECT user_id FROM conversation_participants WHERE conversation_id = $1",
+    )
+    .bind(conversation_id)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+    let user_ids: Vec<i64> = participant_ids.into_iter().map(|(id,)| id as i64).collect();
+
+    if let Some(hub) = hub {
+        let event = ws::ServerEvent::NewMessage {
+            conversation_id: conversation_id as i64,
+            message: serde_json::to_value(dto).unwrap_or_default(),
+        };
+        tracing::info!(
+            "notify_new_message: broadcast local vers {} participants (conv={})",
+            user_ids.len(),
+            conversation_id
+        );
+        hub.broadcast_to_users(&user_ids, &event).await;
+    }
+
+    let notify_payload = serde_json::json!({
+        "conversation_id": conversation_id as i64,
+        "participant_ids": user_ids,
+        "message": serde_json::to_value(dto).unwrap_or_default(),
+    });
+    if let Err(e) = sqlx::query("SELECT pg_notify('fichat_messages', $1)")
+        .bind(notify_payload.to_string())
+        .execute(pool)
+        .await
+    {
+        tracing::warn!("pg_notify fichat_messages failed: {}", e);
+    } else {
+        tracing::info!("pg_notify fichat_messages envoyé pour conv={}", conversation_id);
+    }
 }
 
 // ─── Helper : broadcast + pg_notify après une modification de message ─────────

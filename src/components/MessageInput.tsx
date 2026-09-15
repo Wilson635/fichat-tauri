@@ -3,7 +3,8 @@ import data from "@emoji-mart/data";
 import Picker from "@emoji-mart/react";
 import { useThemeStore } from "@/store/themeStore";
 import type { MessageDto } from "@/services/chatService";
-import { formatFileSize, isImage, isVideo, isAudio, isPdf, generateThumbnail } from "@/utils/fileUtils";
+import { formatFileSize, isImage, isVideo, isAudio, generateThumbnail } from "@/utils/fileUtils";
+import { Icon } from "@/components/Icon";
 
 interface PendingFile {
     file: File;
@@ -13,7 +14,7 @@ interface PendingFile {
 
 interface Props {
     onSend: (content: string, replyToId?: number) => void;
-    onSendFile?: (file: File, thumbnail: string | null, dataUrl: string, caption: string, replyToId?: number) => void;
+    onSendFile?: (file: File, thumbnail: string | null, dataUrl: string, caption: string, replyToId?: number, messageType?: "voice" | "image" | "file" | "video") => void;
     onTyping: () => void;
     replyTo: MessageDto | null;
     onCancelReply: () => void;
@@ -42,33 +43,21 @@ interface AttachmentMenuItem {
 
 const ATTACHMENT_ITEMS: AttachmentMenuItem[] = [
     {
-        icon: (
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-        ),
+        icon: <Icon name="file" size={18} />,
         label: "Document",
-        color: "#7c3aed",
+        color: "#6366F1",
         accept: ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar",
     },
     {
-        icon: (
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-        ),
+        icon: <Icon name="image" size={18} />,
         label: "Photos et vidéos",
-        color: "#8b5cf6",
+        color: "#0EA5E9",
         accept: "image/*,video/*",
     },
     {
-        icon: (
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-            </svg>
-        ),
+        icon: <Icon name="mic" size={18} />,
         label: "Audio",
-        color: "#f97316",
+        color: "#F59E0B",
         accept: "audio/*",
     },
 ];
@@ -114,7 +103,7 @@ function AttachmentMenu({ onSelect, onClose }: {
                 >
                     {/* Colored circle icon */}
                     <div
-                        className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+                        className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
                         style={{ backgroundColor: item.color, color: "#fff" }}
                     >
                         {item.icon}
@@ -218,39 +207,16 @@ function PendingFilePreview({ pendingFile, onRemove }: { pendingFile: PendingFil
         );
     }
 
-    // ── PDF ──
-    if (isPdf(mime)) {
-        return (
-            <div className="relative mb-2 rounded-2xl overflow-hidden border shadow-sm" style={{ backgroundColor: "var(--color-surface-secondary)", borderColor: "var(--color-border)", maxWidth: 280 }}>
-                <RemoveBtn />
-                {thumbnail ? (
-                    <img src={thumbnail} alt="aperçu PDF" className="w-full object-cover object-top block" style={{ maxHeight: 140 }} />
-                ) : (
-                    <div className="flex items-center justify-center" style={{ height: 88, backgroundColor: "rgba(239,68,68,0.08)" }}>
-                        <div className="w-14 h-14 rounded-full flex items-center justify-center font-bold text-white" style={{ backgroundColor: "#ef4444", fontSize: 14 }}>PDF</div>
-                    </div>
-                )}
-                <div className="flex items-center gap-3 px-3 py-2.5">
-                    <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 font-bold text-white text-xs" style={{ backgroundColor: "#ef4444" }}>PDF</div>
-                    <div className="min-w-0">
-                        <p className="text-sm font-medium truncate" style={{ color: "var(--color-text-primary)" }}>{file.name}</p>
-                        <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>PDF · {formatFileSize(file.size)}</p>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    // ── Generic document ──
+    // ── Document (PDF, Office, etc.) ──
     return (
-        <div className="relative flex items-center gap-3 mb-2 px-4 py-3 rounded-2xl border shadow-sm" style={{ backgroundColor: "var(--color-surface-secondary)", borderColor: "var(--color-border)", maxWidth: 300 }}>
+        <div className="relative flex items-center gap-3 mb-2 px-3 py-2.5 rounded-xl border" style={{ backgroundColor: "var(--color-surface)", borderColor: "var(--color-border)", maxWidth: 300 }}>
             <RemoveBtn />
-            <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 font-bold text-white text-xs" style={{ backgroundColor: accent.bg }}>
+            <div className="w-9 h-11 rounded-md flex items-center justify-center shrink-0 font-bold text-white text-[9px] tracking-wide" style={{ backgroundColor: accent.bg }}>
                 {accent.label.slice(0, 4)}
             </div>
-            <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate" style={{ color: "var(--color-text-primary)" }}>{file.name}</p>
-                <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>{accent.label} · {formatFileSize(file.size)}</p>
+            <div className="flex-1 min-w-0 pr-6">
+                <p className="text-[13px] font-medium truncate" style={{ color: "var(--color-text-primary)" }}>{file.name}</p>
+                <p className="text-[11px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>{accent.label} · {formatFileSize(file.size)}</p>
             </div>
         </div>
     );
@@ -267,6 +233,17 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [fileAccept, setFileAccept] = useState("*/*");
     const [fileCapture, setFileCapture] = useState<string | undefined>(undefined);
+    const [recording, setRecording] = useState(false);
+    const [recordSecs, setRecordSecs] = useState(0);
+    const [recordError, setRecordError] = useState<string | null>(null);
+    const recordSecsRef = useRef(0);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const recordChunksRef = useRef<Blob[]>([]);
+    const recordStreamRef = useRef<MediaStream | null>(null);
+    const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const analyserRef = useRef<AnalyserNode | null>(null);
+    const [levels, setLevels] = useState<number[]>(() => Array(24).fill(8));
+    const rafRef = useRef<number | null>(null);
     const { theme } = useThemeStore();
 
     const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -323,6 +300,122 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
         setTimeout(() => fileInputRef.current?.click(), 80);
     };
 
+    const stopStream = useCallback(() => {
+        recordStreamRef.current?.getTracks().forEach((t) => t.stop());
+        recordStreamRef.current = null;
+        if (recordTimerRef.current) {
+            clearInterval(recordTimerRef.current);
+            recordTimerRef.current = null;
+        }
+        if (rafRef.current) {
+            cancelAnimationFrame(rafRef.current);
+            rafRef.current = null;
+        }
+        analyserRef.current = null;
+    }, []);
+
+    const cancelRecording = useCallback(() => {
+        try { mediaRecorderRef.current?.stop(); } catch {}
+        mediaRecorderRef.current = null;
+        recordChunksRef.current = [];
+        stopStream();
+        setRecording(false);
+        recordSecsRef.current = 0;
+        setRecordSecs(0);
+    }, [stopStream]);
+
+    const finishRecording = useCallback(async (sendIt: boolean) => {
+        const recorder = mediaRecorderRef.current;
+        mediaRecorderRef.current = null;
+        if (recorder && recorder.state !== "inactive") {
+            await new Promise<void>((resolve) => {
+                recorder.addEventListener("stop", () => resolve(), { once: true });
+                try { recorder.requestData(); } catch { /* ignore */ }
+                try { recorder.stop(); } catch { resolve(); }
+            });
+        }
+        const chunks = recordChunksRef.current;
+        const mime = recorder?.mimeType || "audio/webm";
+        const recordedSecs = Math.max(1, recordSecsRef.current);
+        stopStream();
+        setRecording(false);
+        recordSecsRef.current = 0;
+        setRecordSecs(0);
+        recordChunksRef.current = [];
+        if (!sendIt || chunks.length === 0) return;
+        const blob = new Blob(chunks, { type: mime });
+        if (blob.size < 400) return;
+        const ext = mime.includes("ogg") ? "ogg" : mime.includes("mp4") ? "m4a" : "webm";
+        const file = new File([blob], `message-vocal-${recordedSecs}s-${Date.now()}.${ext}`, { type: mime || "audio/webm" });
+        const { fileToDataUrl } = await import("@/utils/fileUtils");
+        const dataUrl = await fileToDataUrl(file);
+        onSendFile?.(file, null, dataUrl, "", replyTo?.id, "voice");
+        onCancelReply();
+    }, [onSendFile, onCancelReply, replyTo, stopStream]);
+
+    const startRecording = useCallback(async () => {
+        setRecordError(null);
+        if (!navigator.mediaDevices?.getUserMedia) {
+            setRecordError("Enregistrement audio non supporté");
+            return;
+        }
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            recordStreamRef.current = stream;
+            const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+                ? "audio/webm;codecs=opus"
+                : MediaRecorder.isTypeSupported("audio/webm")
+                    ? "audio/webm"
+                    : "";
+            const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+            recordChunksRef.current = [];
+            recorder.ondataavailable = (e) => {
+                if (e.data && e.data.size > 0) recordChunksRef.current.push(e.data);
+            };
+            recorder.onstop = () => {};
+            mediaRecorderRef.current = recorder;
+            recorder.start(100);
+            setRecording(true);
+            recordSecsRef.current = 0;
+            setRecordSecs(0);
+            recordTimerRef.current = setInterval(() => {
+                recordSecsRef.current += 1;
+                const s = recordSecsRef.current;
+                setRecordSecs(s);
+                if (s >= 300) {
+                    finishRecording(true).catch(() => {});
+                }
+            }, 1000);
+
+            try {
+                const ctx = new AudioContext();
+                const source = ctx.createMediaStreamSource(stream);
+                const analyser = ctx.createAnalyser();
+                analyser.fftSize = 64;
+                source.connect(analyser);
+                analyserRef.current = analyser;
+                const data = new Uint8Array(analyser.frequencyBinCount);
+                const tick = () => {
+                    analyser.getByteFrequencyData(data);
+                    const bars = Array.from({ length: 24 }, (_, i) => {
+                        const v = data[Math.floor((i / 24) * data.length)] ?? 0;
+                        return 6 + (v / 255) * 22;
+                    });
+                    setLevels(bars);
+                    rafRef.current = requestAnimationFrame(tick);
+                };
+                tick();
+            } catch {}
+        } catch {
+            setRecordError("Microphone refusé ou indisponible");
+        }
+    }, [finishRecording]);
+
+    useEffect(() => () => {
+        try { mediaRecorderRef.current?.stop(); } catch {}
+        stopStream();
+    }, [stopStream]);
+
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -360,10 +453,8 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
               {replyTo.attachments?.length ? `📎 ${replyTo.attachments[0].fileName}` : replyTo.content}
             </span>
                     </div>
-                    <button onClick={onCancelReply} className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: "var(--color-border)" }}>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} style={{ color: "var(--color-text-muted)" }}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
+                    <button onClick={onCancelReply} className="icon-btn shrink-0" style={{ width: 28, height: 28 }}>
+                        <Icon name="x" size={14} />
                     </button>
                 </div>
             )}
@@ -373,9 +464,49 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
                 <PendingFilePreview pendingFile={pendingFile} onRemove={() => { setPendingFile(null); inputRef.current?.focus(); }} />
             )}
 
-            {/* ── Main input row ────────────────────────────────────────────────── */}
+            {recordError && (
+                <p className="text-xs mb-1 px-1" style={{ color: "#ef4444" }}>{recordError}</p>
+            )}
+
+            {recording ? (
+                <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={cancelRecording}
+                        className="icon-btn shrink-0"
+                        style={{ color: "#ef4444" }}
+                        title="Annuler"
+                    >
+                        <Icon name="trash" size={18} />
+                    </button>
+                    <div className="flex-1 flex items-center gap-3 rounded-2xl px-3 py-2" style={{ backgroundColor: "var(--color-surface)" }}>
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0 animate-pulse" style={{ backgroundColor: "#ef4444" }} />
+                        <span className="text-sm tabular-nums font-medium" style={{ color: "var(--color-text-primary)" }}>
+                            {Math.floor(recordSecs / 60)}:{(recordSecs % 60).toString().padStart(2, "0")}
+                        </span>
+                        <div className="flex-1 flex items-end gap-px h-7">
+                            {levels.map((h, i) => (
+                                <div
+                                    key={i}
+                                    className="flex-1 rounded-full"
+                                    style={{ height: `${h}px`, backgroundColor: "var(--color-primary-500)", minHeight: 4 }}
+                                />
+                            ))}
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => finishRecording(true)}
+                        className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: "var(--color-primary-500)", color: "#fff" }}
+                        title="Envoyer le message vocal"
+                    >
+                        <Icon name="send" size={18} />
+                    </button>
+                </div>
+            ) : (
             <div className="flex items-end gap-2">
-                <div className="flex-1 flex items-end gap-1 rounded-2xl px-2 py-1.5" style={{ backgroundColor: "var(--color-surface)" }}>
+                <div className="flex-1 flex items-end gap-1 rounded-xl px-2 py-1.5" style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
 
                     {/* Attachment button with popup menu */}
                     <div className="relative self-end pb-0.5">
@@ -392,14 +523,9 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
                             type="button"
                         >
                             {fileLoading ? (
-                                <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                                </svg>
+                                <Icon name="loader" size={18} className="animate-spin" />
                             ) : (
-                                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                                </svg>
+                                <Icon name="plus" size={18} />
                             )}
                         </button>
 
@@ -420,9 +546,7 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
                             title="Émojis"
                             type="button"
                         >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
+                            <Icon name="smile" size={18} />
                         </button>
                         {showEmoji && (
                             <div className="absolute bottom-10 left-0 z-50" onMouseDown={(e) => e.preventDefault()}>
@@ -445,23 +569,37 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
                     />
                 </div>
 
-                {/* Send button */}
+                {/* Send or microphone */}
+                {canSend ? (
                 <button
                     onClick={send}
                     disabled={!canSend}
-                    className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-all"
+                    className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all"
                     style={{
-                        backgroundColor: canSend ? "var(--color-primary-500)" : "var(--color-surface-secondary)",
-                        color: canSend ? "#fff" : "var(--color-text-muted)",
-                        transform: canSend ? "scale(1)" : "scale(0.88)",
+                        backgroundColor: "var(--color-primary-500)",
+                        color: "#fff",
                     }}
                     title="Envoyer (Entrée)"
                 >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
-                    </svg>
+                    <Icon name="send" size={18} />
                 </button>
+                ) : (
+                <button
+                    type="button"
+                    onClick={startRecording}
+                    disabled={disabled}
+                    className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all disabled:opacity-40"
+                    style={{
+                        backgroundColor: "var(--color-primary-500)",
+                        color: "#fff",
+                    }}
+                    title="Message vocal"
+                >
+                    <Icon name="mic" size={18} />
+                </button>
+                )}
             </div>
+            )}
 
             {/* Hidden file input */}
             <input

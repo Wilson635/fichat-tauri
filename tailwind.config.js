@@ -39,7 +39,7 @@ export default {
         },
       },
       fontFamily: {
-        sans: ["-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
+        sans: ["Poppins", "Segoe UI", "sans-serif"],
       },
       animation: {
         "fade-in":    "fadeIn 0.15s ease-in-out",

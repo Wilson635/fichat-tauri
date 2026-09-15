@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { chatService, MessageSearchResult } from "@/services/chatService";
 import { useChatStore } from "@/store/chatStore";
 import { format, isToday, isYesterday } from "date-fns";
+import { Icon } from "@/components/Icon";
 
 interface Props {
   onClose: () => void;
@@ -151,16 +152,11 @@ export function GlobalSearchModal({ onClose }: Props) {
             style={{ color: "var(--color-text-primary)", fontSize: 15 }}
           />
           {isLoading && (
-            <svg className="animate-spin w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" style={{ color: "var(--color-primary-500)" }}>
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
+            <Icon name="loader" size={16} className="animate-spin shrink-0" style={{ color: "var(--color-primary-500)" }} />
           )}
           {query && !isLoading && (
             <button onClick={() => setQuery("")} style={{ color: "var(--color-text-muted)" }}>
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <Icon name="x" size={16} />
             </button>
           )}
           <kbd
@@ -175,9 +171,7 @@ export function GlobalSearchModal({ onClose }: Props) {
         <div ref={listRef} className="overflow-y-auto flex-1">
           {!query.trim() ? (
             <div className="flex flex-col items-center justify-center py-12 gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} style={{ color: "var(--color-text-muted)" }}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
+              <Icon name="search" size={32} style={{ color: "var(--color-text-muted)", opacity: 0.25 }} />
               <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
                 Tapez pour rechercher dans tous les messages
               </p>

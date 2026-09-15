@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import {
-  sendToastNotification,
   sendPriorityNotification,
   setBadgeCount,
   playNotificationSound,
@@ -77,7 +76,7 @@ export const useNotificationStore = create<NotificationState>()(
           state.dndEnabled &&
           isInDndRange(state.dndStartHour, state.dndEndHour);
 
-        if (inDnd && !item.isPriority) return;
+        if (inDnd && !item.isPriority && prefs?.priority !== true) return;
 
         const isPriority = item.isPriority || prefs?.priority === true;
 
@@ -88,26 +87,23 @@ export const useNotificationStore = create<NotificationState>()(
           isRead: false,
         };
 
+        const tauriRuntime =
+          typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
         set((s) => ({
           items: [newItem, ...s.items].slice(0, 100),
-          pendingPriority: isPriority ? newItem : s.pendingPriority,
+          pendingPriority: tauriRuntime ? s.pendingPriority : newItem,
         }));
 
         const soundType: NotifSoundType =
           prefs?.sound ?? state.globalSound;
 
         if (!inDnd) {
-          playNotificationSound(soundType);
+          playNotificationSound(soundType === "none" ? "priority" : soundType);
         }
 
-        // Toujours tenter d'envoyer — le service gère permission et fallback
-        if (isPriority) {
+        if (tauriRuntime) {
           sendPriorityNotification({
-            title: `🚨 Message prioritaire — ${item.conversationName}`,
-            body: `${item.senderName}: ${item.content}`,
-          }).catch(() => {});
-        } else {
-          sendToastNotification({
             title: item.conversationName,
             body: `${item.senderName}: ${item.content}`,
             conversationId: item.conversationId,

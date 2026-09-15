@@ -6,6 +6,8 @@ import {
 import { format, subDays } from "date-fns";
 import { fr } from "date-fns/locale";
 import { useAuthStore } from "@/store/authStore";
+import { Icon } from "@/components/Icon";
+import { useRuntimeLogStore, formatLogLine, type RuntimeLog } from "@/store/runtimeLogStore";
 
 // ─── Tauri invoke helper ──────────────────────────────────────────────────────
 
@@ -44,14 +46,6 @@ interface AdminStats {
   totalGroups: number;
 }
 
-interface AuditLogEntry {
-  id: number;
-  actorUsername: string | null;
-  action: string;
-  details: string | null;
-  createdAt: string;
-}
-
 interface SyncHistoryEntry {
   id: number;
   startedAt: string;
@@ -79,32 +73,12 @@ const MOCK_USERS: AdminUser[] = [
 
 const MOCK_STATS: AdminStats = { totalUsers: 8, activeUsersToday: 5, totalMessagesToday: 142, totalGroups: 4 };
 
-function genMockLogs(): AuditLogEntry[] {
-  return [
-    { id: 1, actorUsername: "alice.martin", action: "login", details: null, createdAt: new Date().toISOString() },
-    { id: 2, actorUsername: "admin", action: "update_role", details: '{"new_role":"system_admin"}', createdAt: subDays(new Date(), 0).toISOString() },
-    { id: 3, actorUsername: "bob.dupont", action: "login", details: null, createdAt: subDays(new Date(), 1).toISOString() },
-  ];
-}
-
 const MOCK_SYNC_HISTORY: SyncHistoryEntry[] = [
   { id: 1, startedAt: new Date().toISOString(), completedAt: new Date().toISOString(), usersAdded: 0, usersUpdated: 3, usersDisabled: 0, status: "success", errorMessage: null },
   { id: 2, startedAt: subDays(new Date(), 1).toISOString(), completedAt: subDays(new Date(), 1).toISOString(), usersAdded: 1, usersUpdated: 2, usersDisabled: 0, status: "success", errorMessage: null },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function actionLabel(action: string): { level: string; msg: string } {
-  const map: Record<string, { level: string; msg: string }> = {
-    login:         { level: "INFO",  msg: "Connexion réussie" },
-    logout:        { level: "INFO",  msg: "Déconnexion" },
-    update_role:   { level: "INFO",  msg: "Rôle mis à jour" },
-    enable_user:   { level: "INFO",  msg: "Compte activé" },
-    disable_user:  { level: "WARN",  msg: "Compte désactivé" },
-    sync_ad:       { level: "INFO",  msg: "Synchronisation AD" },
-  };
-  return map[action] ?? { level: "INFO", msg: action };
-}
 
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return "—";
@@ -154,13 +128,16 @@ function StatCard({ icon, label, value, sub, color }: { icon: React.ReactNode; l
 
 function LogLevelBadge({ level }: { level: string }) {
   const styles: Record<string, React.CSSProperties> = {
-    INFO:  { backgroundColor: "rgba(34,197,94,0.12)",  color: "#16a34a" },
-    WARN:  { backgroundColor: "rgba(245,158,11,0.12)", color: "#d97706" },
-    ERROR: { backgroundColor: "rgba(239,68,68,0.12)",  color: "#dc2626" },
+    TRACE: { backgroundColor: "rgba(148,163,184,0.15)", color: "#94a3b8" },
+    DEBUG: { backgroundColor: "rgba(56,189,248,0.12)",  color: "#38bdf8" },
+    INFO:  { backgroundColor: "rgba(34,197,94,0.12)",   color: "#16a34a" },
+    WARN:  { backgroundColor: "rgba(245,158,11,0.12)",  color: "#d97706" },
+    ERROR: { backgroundColor: "rgba(239,68,68,0.12)",   color: "#dc2626" },
   };
+  const key = level.toUpperCase();
   return (
-      <span className="px-1.5 py-0.5 rounded text-xs font-bold font-mono" style={styles[level] ?? {}}>
-      {level}
+      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold font-mono" style={styles[key] ?? styles.INFO}>
+      {key}
     </span>
   );
 }
@@ -203,24 +180,24 @@ function StatsTab() {
       <div className="space-y-5">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <StatCard
-              icon={<svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>}
+              icon={<Icon name="users" size={20} style={{ color: "#fff" }} />}
               label="Utilisateurs actifs"
               value={s.totalUsers}
           />
           <StatCard
-              icon={<svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>}
+              icon={<Icon name="message" size={20} style={{ color: "#fff" }} />}
               label="Messages aujourd'hui"
               value={s.totalMessagesToday}
               color="#7c3aed"
           />
           <StatCard
-              icon={<svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
+              icon={<Icon name="users" size={20} style={{ color: "#fff" }} />}
               label="Groupes actifs"
               value={s.totalGroups}
               color="#ea580c"
           />
           <StatCard
-              icon={<svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>}
+              icon={<Icon name="eye" size={20} style={{ color: "#fff" }} />}
               label="Actifs aujourd'hui"
               value={s.activeUsersToday}
               color="#0891b2"
@@ -608,105 +585,227 @@ function SyncTab() {
 
 function LogsTab() {
   const { token } = useAuthStore();
-  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const entries = useRuntimeLogStore((s) => s.entries);
+  const live = useRuntimeLogStore((s) => s.live);
+  const setLive = useRuntimeLogStore((s) => s.setLive);
+  const replaceAll = useRuntimeLogStore((s) => s.replaceAll);
   const [filter, setFilter] = useState<"ALL" | "INFO" | "WARN" | "ERROR">("ALL");
   const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportMsg, setExportMsg] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const stickToBottom = useRef(true);
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     setLoading(true);
-    invoke<AuditLogEntry[]>("cmd_admin_get_logs", { token })
-        .then(setLogs)
-        .catch(() => setLogs(genMockLogs()))
-        .finally(() => setLoading(false));
-  }, [token]);
+    try {
+      const rows = await invoke<RuntimeLog[]>("cmd_admin_get_runtime_logs", { token });
+      replaceAll(rows);
+    } catch {
+      // web preview: keep UI / console-captured lines
+    } finally {
+      setLoading(false);
+    }
+  }, [token, replaceAll]);
 
   useEffect(() => { load(); }, [load]);
 
-  const enriched = logs.map((l) => {
-    const { level, msg } = actionLabel(l.action);
-    return { ...l, level, msg };
+  useEffect(() => {
+    if (!live || !stickToBottom.current) return;
+    bottomRef.current?.scrollIntoView({ block: "end" });
+  }, [entries, live]);
+
+  const filtered = entries.filter((l) => {
+    const level = (l.level || "").toUpperCase();
+    if (filter !== "ALL" && level !== filter) return false;
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (
+      l.message.toLowerCase().includes(q) ||
+      l.target.toLowerCase().includes(q) ||
+      level.toLowerCase().includes(q)
+    );
   });
 
-  const filtered = enriched.filter((l) =>
-      (filter === "ALL" || l.level === filter) &&
-      (
-          l.msg.toLowerCase().includes(search.toLowerCase()) ||
-          (l.actorUsername ?? "").toLowerCase().includes(search.toLowerCase()) ||
-          l.action.toLowerCase().includes(search.toLowerCase())
-      )
-  );
+  const exportLogs = async () => {
+    const body = entries.map(formatLogLine).join("\n") + (entries.length ? "\n" : "");
+    if (!body.trim()) {
+      setExportMsg("Rien à exporter");
+      setTimeout(() => setExportMsg(null), 2500);
+      return;
+    }
+    const stamp = format(new Date(), "yyyyMMdd-HHmmss");
+    const filename = `fichat-logs-${stamp}.txt`;
+    setExporting(true);
+    setExportMsg(null);
+    try {
+      if (isTauri()) {
+        const { save } = await import("@tauri-apps/plugin-dialog");
+        const path = await save({
+          defaultPath: filename,
+          filters: [{ name: "Journal", extensions: ["txt", "log"] }],
+        });
+        if (path) {
+          await invoke("cmd_admin_export_runtime_logs", { token, path, contents: body });
+          setExportMsg(`Exporté : ${path}`);
+        }
+      } else {
+        const blob = new Blob([body], { type: "text/plain;charset=utf-8" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        setExportMsg("Fichier téléchargé");
+      }
+    } catch (e: unknown) {
+      const blob = new Blob([body], { type: "text/plain;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setExportMsg(e instanceof Error ? e.message : "Export local");
+    } finally {
+      setExporting(false);
+      setTimeout(() => setExportMsg(null), 4000);
+    }
+  };
+
+  const lineColor = (level: string) => {
+    const l = level.toUpperCase();
+    if (l === "ERROR") return "#ff7b72";
+    if (l === "WARN") return "#e3b341";
+    if (l === "DEBUG" || l === "TRACE") return "#8b949e";
+    return "#e6edf3";
+  };
 
   return (
-      <div className="space-y-3">
-        <div className="flex flex-wrap gap-2">
-          <div className="flex items-center gap-2 rounded-lg px-3 py-2 border flex-1 min-w-40"
-               style={{ backgroundColor: "var(--color-input-bg)", borderColor: "var(--color-border)" }}>
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "var(--color-text-muted)" }}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-                   placeholder="Filtrer les logs…"
-                   className="flex-1 bg-transparent text-sm outline-none"
-                   style={{ color: "var(--color-text-primary)" }} />
-          </div>
-          <div className="flex gap-1">
-            {(["ALL", "INFO", "WARN", "ERROR"] as const).map((f) => (
-                <button key={f} onClick={() => setFilter(f)}
-                        className="px-3 py-2 rounded-lg text-xs font-semibold border transition-colors"
-                        style={{
-                          backgroundColor: filter === f ? "var(--color-primary-500)" : "transparent",
-                          borderColor: filter === f ? "var(--color-primary-500)" : "var(--color-border)",
-                          color: filter === f ? "#fff" : "var(--color-text-muted)",
-                        }}>
-                  {f}
-                </button>
-            ))}
-          </div>
-          <button onClick={load} className="px-3 py-2 rounded-lg text-sm border transition-colors"
-                  style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}>
-            ↺
+    <div className="flex flex-col gap-3 h-full min-h-0">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-[13px] font-semibold" style={{ color: "var(--color-text-primary)" }}>
+            Journal runtime
+          </p>
+          <p className="text-[12px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+            Mêmes lignes que le terminal (`tauri dev`) — tracing backend + erreurs UI.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setLive(!live)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold border"
+            style={{
+              borderColor: "var(--color-border)",
+              color: live ? "#16a34a" : "var(--color-text-muted)",
+              backgroundColor: live ? "rgba(22,163,74,0.08)" : "transparent",
+            }}
+          >
+            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: live ? "#22c55e" : "#94a3b8" }} />
+            {live ? "Live" : "Pause"}
+          </button>
+          <button
+            type="button"
+            onClick={load}
+            className="px-3 py-1.5 rounded-lg text-[12px] font-semibold border"
+            style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}
+          >
+            Actualiser
+          </button>
+          <button
+            type="button"
+            onClick={exportLogs}
+            disabled={exporting}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white disabled:opacity-60"
+            style={{ backgroundColor: "var(--color-primary-500)" }}
+          >
+            <Icon name="download" size={14} />
+            {exporting ? "Export…" : "Exporter"}
           </button>
         </div>
-
-        {loading ? (
-            <div className="flex items-center justify-center h-32 gap-2" style={{ color: "var(--color-text-muted)" }}>
-              <Spinner /> Chargement des logs…
-            </div>
-        ) : (
-            <div className="rounded-xl font-mono text-xs overflow-auto" style={{ backgroundColor: "#0d1117", maxHeight: 400 }}>
-              <div className="p-3 space-y-1">
-                {filtered.map((l) => (
-                    <div key={l.id} className="flex items-start gap-2 leading-relaxed">
-                <span className="shrink-0 opacity-50" style={{ color: "#8b949e" }}>
-                  {format(new Date(l.createdAt), "HH:mm:ss")}
-                </span>
-                      <LogLevelBadge level={l.level} />
-                      <span className="shrink-0" style={{ color: "#58a6ff" }}>
-                  [{l.actorUsername ?? "system"}]
-                </span>
-                      <span style={{ color: l.level === "ERROR" ? "#ff7b72" : l.level === "WARN" ? "#e3b341" : "#e6edf3" }}>
-                  {l.msg}
-                        {l.details && (
-                            <span className="opacity-60 ml-1">{l.details}</span>
-                        )}
-                </span>
-                    </div>
-                ))}
-                {filtered.length === 0 && (
-                    <span style={{ color: "#8b949e" }}>Aucun log correspondant.</span>
-                )}
-                <div ref={bottomRef} />
-              </div>
-            </div>
-        )}
-
-        <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-          {filtered.length} entrée{filtered.length > 1 ? "s" : ""} affichée{filtered.length > 1 ? "s" : ""}
-          {logs.length > 0 && ` · ${logs.length} total`}
-        </p>
       </div>
+
+      {exportMsg && (
+        <p className="text-[12px]" style={{ color: "var(--color-primary-600)" }}>{exportMsg}</p>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <div className="flex items-center gap-2 rounded-lg px-3 py-2 border flex-1 min-w-40"
+             style={{ backgroundColor: "var(--color-input-bg)", borderColor: "var(--color-border)" }}>
+          <Icon name="search" size={14} style={{ color: "var(--color-text-muted)" }} />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filtrer cible, message…"
+            className="flex-1 bg-transparent text-sm outline-none"
+            style={{ color: "var(--color-text-primary)" }}
+          />
+        </div>
+        <div className="flex gap-1">
+          {(["ALL", "INFO", "WARN", "ERROR"] as const).map((f) => (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setFilter(f)}
+              className="px-3 py-2 rounded-lg text-xs font-semibold border transition-colors"
+              style={{
+                backgroundColor: filter === f ? "var(--color-primary-500)" : "transparent",
+                borderColor: filter === f ? "var(--color-primary-500)" : "var(--color-border)",
+                color: filter === f ? "#fff" : "var(--color-text-muted)",
+              }}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div
+        ref={scrollerRef}
+        className="rounded-xl font-mono text-[11px] overflow-auto flex-1"
+        style={{ backgroundColor: "#0d1117", minHeight: 320, maxHeight: "calc(100vh - 280px)" }}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+        }}
+      >
+        {loading && entries.length === 0 ? (
+          <div className="flex items-center justify-center h-32 gap-2" style={{ color: "#8b949e" }}>
+            <Spinner /> Chargement du journal…
+          </div>
+        ) : (
+          <div className="p-3 space-y-0.5">
+            {filtered.map((l) => (
+              <div key={l.id} className="flex items-start gap-2 leading-relaxed whitespace-pre-wrap break-all">
+                <span className="shrink-0" style={{ color: "#8b949e" }}>
+                  {l.timestamp}
+                </span>
+                <LogLevelBadge level={l.level} />
+                <span className="shrink-0" style={{ color: "#58a6ff" }}>{l.target}</span>
+                <span style={{ color: lineColor(l.level) }}>{l.message}</span>
+              </div>
+            ))}
+            {filtered.length === 0 && (
+              <span style={{ color: "#8b949e" }}>
+                {entries.length === 0
+                  ? "Aucun log capturé pour l’instant. Utilisez l’application : les lignes tracing apparaissent ici en direct."
+                  : "Aucun log correspondant au filtre."}
+              </span>
+            )}
+            <div ref={bottomRef} />
+          </div>
+        )}
+      </div>
+
+      <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+        {filtered.length} ligne{filtered.length > 1 ? "s" : ""} affichée{filtered.length > 1 ? "s" : ""}
+        {entries.length > 0 && ` · ${entries.length} en mémoire`}
+      </p>
+    </div>
   );
 }
 
@@ -716,30 +815,18 @@ export function AdminPage() {
   const [activeTab, setActiveTab] = useState<AdminTab>("stats");
 
   const tabs: { id: AdminTab; label: string; icon: React.ReactNode }[] = [
-    {
-      id: "stats", label: "Statistiques",
-      icon: <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>,
-    },
-    {
-      id: "users", label: "Utilisateurs",
-      icon: <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>,
-    },
-    {
-      id: "sync", label: "Sync AD",
-      icon: <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>,
-    },
-    {
-      id: "logs", label: "Logs",
-      icon: <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>,
-    },
+    { id: "stats", label: "Statistiques", icon: <Icon name="globe" size={16} /> },
+    { id: "users", label: "Utilisateurs", icon: <Icon name="users" size={16} /> },
+    { id: "sync", label: "Sync AD", icon: <Icon name="loader" size={16} /> },
+    { id: "logs", label: "Logs", icon: <Icon name="file" size={16} /> },
   ];
 
   return (
       <div className="flex flex-col h-full">
         <div className="px-6 py-4 border-b shrink-0" style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-header-bg)" }}>
-          <h1 className="text-lg font-bold" style={{ color: "var(--color-text-primary)" }}>Administration</h1>
+          <h1 className="text-[16px] font-semibold tracking-tight" style={{ color: "var(--color-text-primary)" }}>Administration</h1>
           <p className="text-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>
-            Gestion des utilisateurs, synchronisation AD et journaux d'activité
+            Gestion des utilisateurs, synchronisation AD et journal runtime
           </p>
         </div>
 

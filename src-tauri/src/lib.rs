@@ -1,6 +1,7 @@
 mod commands;
 mod config;
 mod db;
+mod log_buffer;
 mod pg_notify;
 mod ws;
 
@@ -30,11 +31,16 @@ pub type SharedState = Arc<Mutex<AppState>>;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "enterprise_chat=info".into()),
+    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
+    tracing_subscriber::registry()
+        .with(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                EnvFilter::new("enterprise_chat_lib=info,enterprise_chat=info")
+            }),
         )
+        .with(fmt::layer())
+        .with(log_buffer::CaptureLayer)
         .init();
 
     let state: SharedState = Arc::new(Mutex::new(AppState::new()));
@@ -48,6 +54,7 @@ pub fn run() {
         .manage(state.clone())
         .setup(move |app| {
             let app_handle = app.handle().clone();
+            log_buffer::set_app_handle(app_handle.clone());
             let state_clone = state.clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = initialize_app(app_handle, state_clone).await {
@@ -73,6 +80,8 @@ pub fn run() {
             commands::admin::cmd_admin_toggle_status,
             commands::admin::cmd_admin_get_stats,
             commands::admin::cmd_admin_get_logs,
+            commands::admin::cmd_admin_get_runtime_logs,
+            commands::admin::cmd_admin_export_runtime_logs,
             commands::admin::cmd_admin_get_sync_history,
             commands::admin::cmd_admin_sync_ad,
             // ── Chat ─────────────────────────────────────
@@ -92,6 +101,7 @@ pub fn run() {
             commands::chat::cmd_update_member_role,
             commands::chat::cmd_send_message_with_file,
             commands::chat::cmd_get_file_as_base64,
+            commands::chat::cmd_get_attachment_data,
             commands::chat::cmd_get_conversation_media,
             commands::chat::cmd_edit_message,
             commands::chat::cmd_delete_message,

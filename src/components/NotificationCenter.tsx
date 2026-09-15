@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useNotificationStore } from "@/store/notificationStore";
+import { Icon } from "@/components/Icon";
 import { requestNotificationPermission } from "@/services/notificationService";
 import { format, isToday, isYesterday } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -17,10 +19,13 @@ function pad(n: number) {
   return String(n).padStart(2, "0");
 }
 
-export function NotificationCenter() {
+export function NotificationCenter({ variant = "default" }: { variant?: "default" | "rail" }) {
   const [open, setOpen] = useState(false);
   const [showDndConfig, setShowDndConfig] = useState(false);
+  const [panelPos, setPanelPos] = useState({ top: 56, left: 72 });
   const ref = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
   const {
@@ -41,14 +46,33 @@ export function NotificationCenter() {
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-        setShowDndConfig(false);
-      }
+      const t = e.target as Node;
+      if (ref.current?.contains(t) || panelRef.current?.contains(t)) return;
+      setOpen(false);
+      setShowDndConfig(false);
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
+
+  const placePanel = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const width = 320;
+    const maxH = 440;
+    if (variant === "rail") {
+      let top = r.top;
+      if (top + maxH > window.innerHeight - 12) {
+        top = Math.max(12, window.innerHeight - maxH - 12);
+      }
+      setPanelPos({ top, left: r.right + 10 });
+    } else {
+      setPanelPos({
+        top: r.bottom + 8,
+        left: Math.max(12, Math.min(r.right - width, window.innerWidth - width - 12)),
+      });
+    }
+  };
 
   const handleItemClick = (item: (typeof items)[0]) => {
     markRead(item.id);
@@ -66,45 +90,27 @@ export function NotificationCenter() {
   return (
     <div ref={ref} className="relative">
       <button
+        ref={btnRef}
         onClick={() => {
-          setOpen((v) => !v);
-          if (!open) markAllRead();
+          const next = !open;
+          if (next) {
+            placePanel();
+            markAllRead();
+          }
+          setOpen(next);
         }}
-        className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors relative"
+        className={variant === "rail" ? "icon-btn-rail relative" : "icon-btn relative"}
         title="Notifications"
+        style={
+          variant === "rail"
+            ? { color: dndEnabled ? "#f87171" : open ? "var(--color-primary-400)" : undefined }
+            : { color: dndEnabled ? "#ef4444" : open ? "var(--color-primary-500)" : undefined }
+        }
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="w-5 h-5"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-          style={{
-            color: open
-              ? "var(--color-primary-500)"
-              : dndEnabled
-              ? "#ef4444"
-              : "var(--color-text-muted)",
-          }}
-        >
-          {dndEnabled ? (
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
-            />
-          ) : (
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-            />
-          )}
-        </svg>
+        <Icon name={dndEnabled ? "moon" : "bell"} size={18} />
         {count > 0 && !dndEnabled && (
           <span
-            className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 rounded-full flex items-center justify-center text-white text-[10px] font-bold px-0.5"
+            className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 rounded-full flex items-center justify-center text-white text-[10px] font-semibold px-0.5"
             style={{ backgroundColor: "#ef4444" }}
           >
             {count > 99 ? "99+" : count}
@@ -112,10 +118,13 @@ export function NotificationCenter() {
         )}
       </button>
 
-      {open && (
+      {open && createPortal(
         <div
-          className="absolute top-11 right-0 w-80 rounded-2xl shadow-2xl border overflow-hidden z-50"
+          ref={panelRef}
+          className="fixed w-80 rounded-2xl shadow-2xl border overflow-hidden z-[400]"
           style={{
+            top: panelPos.top,
+            left: panelPos.left,
             backgroundColor: "var(--color-surface)",
             borderColor: "var(--color-border)",
           }}
@@ -377,7 +386,7 @@ export function NotificationCenter() {
             </div>
           )}
         </div>
-      )}
+      , document.body)}
     </div>
   );
 }

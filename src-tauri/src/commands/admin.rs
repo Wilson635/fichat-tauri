@@ -613,3 +613,41 @@ pub async fn cmd_admin_sync_ad(
 
     result
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Runtime logs (same stream as the cargo / `tauri dev` terminal)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn cmd_admin_get_runtime_logs(
+    token: String,
+    state: State<'_, SharedState>,
+) -> Result<Vec<crate::log_buffer::RuntimeLog>, String> {
+    let jwt_secret = state.lock().await.jwt_secret.clone();
+    require_admin(&token, &jwt_secret)?;
+    Ok(crate::log_buffer::snapshot())
+}
+
+#[tauri::command]
+pub async fn cmd_admin_export_runtime_logs(
+    token: String,
+    path: String,
+    contents: Option<String>,
+    state: State<'_, SharedState>,
+) -> Result<String, String> {
+    let jwt_secret = state.lock().await.jwt_secret.clone();
+    require_admin(&token, &jwt_secret)?;
+    let body = match contents {
+        Some(c) if !c.trim().is_empty() => c,
+        _ => crate::log_buffer::format_all(),
+    };
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        if !parent.as_os_str().is_empty() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+    }
+    std::fs::write(&path, body.as_bytes())
+        .map_err(|e| format!("Impossible d'écrire le fichier : {e}"))?;
+    tracing::info!("Logs exportés vers {path} ({} octets)", body.len());
+    Ok(path)
+}

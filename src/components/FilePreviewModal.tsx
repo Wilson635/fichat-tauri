@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import type { AttachmentDto } from "@/services/chatService";
-import { chatService, isTauri } from "@/services/chatService";
 import { formatFileSize, isImage, isVideo, isAudio, isPdf } from "@/utils/fileUtils";
+import { getAttachmentObjectUrl, downloadAttachment, isInlineSrc } from "@/utils/attachmentUrl";
 
 interface Props {
   attachment: AttachmentDto;
@@ -17,8 +17,8 @@ export function FilePreviewModal({ attachment, senderName, onClose }: Props) {
   const [srcUrl, setSrcUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
 
-  // ── Resizable / draggable modal ─────────────────────────────────────────────
   const isImg = isImage(attachment.fileType);
   const isVid = isVideo(attachment.fileType);
   const isAud = isAudio(attachment.fileType);
@@ -27,110 +27,42 @@ export function FilePreviewModal({ attachment, senderName, onClose }: Props) {
   const defaultW = isImg || isVid || isPDF ? 820 : 480;
   const defaultH = isImg || isVid || isPDF ? 600 : 320;
 
-  const [size, setSize] = useState<Size>({ w: Math.min(defaultW, window.innerWidth - 48), h: Math.min(defaultH, window.innerHeight - 48) });
+  const [size, setSize] = useState<Size>({
+    w: Math.min(defaultW, window.innerWidth - 48),
+    h: Math.min(defaultH, window.innerHeight - 48),
+  });
   const [pos, setPos] = useState<Pos>({
-    x: Math.round((window.innerWidth - size.w) / 2),
-    y: Math.round((window.innerHeight - size.h) / 2),
+    x: Math.round((window.innerWidth - Math.min(defaultW, window.innerWidth - 48)) / 2),
+    y: Math.round((window.innerHeight - Math.min(defaultH, window.innerHeight - 48)) / 2),
   });
 
   const dragRef = useRef<{ mode: "move" | "resize"; sx: number; sy: number; sw: number; sh: number; px: number; py: number } | null>(null);
 
-  // ── Load file ───────────────────────────────────────────────────────────────
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     setError(null);
 
-    const fp = attachment.filePath;
+    getAttachmentObjectUrl(attachment)
+      .then((url) => {
+        if (cancelled) return;
+        if (!isInlineSrc(attachment.filePath) && url.startsWith("blob:")) {
+          objectUrlRef.current = url;
+        }
+        setSrcUrl(url);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-    // If already a data URL, use directly
-    if (fp.startsWith("data:")) {
-      setSrcUrl(fp);
-      setLoading(false);
-      return;
-    }
-
-    // Tauri: load from disk via base64
-    if (isTauri()) {
-      chatService.getFileAsBase64(fp)
-        .then((b64) => {
-          const mime = attachment.fileType || "application/octet-stream";
-          setSrcUrl(`data:${mime};base64,${b64}`);
-        })
-        .catch((e) => setError(String(e)))
-        .finally(() => setLoading(false));
-      return;
-    }
-
-    // Web + no data URL (shouldn't happen in normal flow)
-    setSrcUrl(fp);
-    setLoading(false);
-  }, [attachment.filePath, attachment.fileType]);
-
-  // 1. Ajoutez cette petite fonction utilitaire en dehors du composant pour convertir le Base64 en Blob
-  const base64ToBlob = (b64Data: string, contentType = '', sliceSize = 512) => {
-    const byteCharacters = atob(b64Data);
-    const byteArrays = [];
-    for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
-      const slice = byteCharacters.slice(offset, offset + sliceSize);
-      const byteNumbers = new Array(slice.length);
-      for (let i = 0; i < slice.length; i++) {
-        byteNumbers[i] = slice.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      byteArrays.push(byteArray);
-    }
-    return new Blob(byteArrays, { type: contentType });
-  };
-
-// 2. Mettez à jour le useEffect dans FilePreviewModal
-  useEffect(() => {
-    setLoading(true);
-    setError(null);
-
-    const fp = attachment.filePath;
-    let objectUrl: string | null = null;
-
-    // Si c'est déjà un data URL (Mode Web / LocalStorage)
-    if (fp.startsWith("data:")) {
-      setSrcUrl(fp);
-      setLoading(false);
-      return;
-    }
-
-    // Mode Tauri (Chemin absolu de fichier local)
-    if (isTauri()) {
-      chatService.getFileAsBase64(fp)
-          .then((b64) => {
-            // Résout votre problème : On force un type Mime Audio pour que la balise HTML5 sache quoi faire
-            let mime = attachment.fileType || "audio/mpeg";
-            if (mime === "application/octet-stream" && attachment.fileName.endsWith(".mp3")) {
-              mime = "audio/mpeg";
-            }
-
-            // Conversion en Blob URL pour des performances optimales avec l'élément <audio>
-            const blob = base64ToBlob(b64, mime);
-            objectUrl = URL.createObjectURL(blob);
-            setSrcUrl(objectUrl);
-          })
-          .catch((e) => {
-            console.error("Erreur de chargement du fichier audio :", e);
-            setError(String(e));
-          })
-          .finally(() => setLoading(false));
-    } else {
-      setSrcUrl(fp);
-      setLoading(false);
-    }
-
-    // Nettoyage de l'URL à la fermeture du composant pour éviter les fuites de mémoire
     return () => {
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
-      }
+      cancelled = true;
     };
-  }, [attachment.filePath, attachment.fileType, attachment.fileName]);
+  }, [attachment.id, attachment.filePath, attachment.fileType, attachment.fileName]);
 
-  // ── Pointer events for drag/resize ──────────────────────────────────────────
   const onPointerDownMove = useCallback((e: React.PointerEvent) => {
     e.currentTarget.setPointerCapture(e.pointerId);
     dragRef.current = { mode: "move", sx: e.clientX, sy: e.clientY, sw: size.w, sh: size.h, px: pos.x, py: pos.y };
@@ -160,20 +92,22 @@ export function FilePreviewModal({ attachment, senderName, onClose }: Props) {
 
   const onPointerUp = useCallback(() => { dragRef.current = null; }, []);
 
-  // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  // ── Download ──────────────────────────────────────────────────────────────────
-  const handleDownload = () => {
-    if (!srcUrl) return;
-    const a = document.createElement("a");
-    a.href = srcUrl;
-    a.download = attachment.fileName;
-    a.click();
+  const handleDownload = async () => {
+    try {
+      await downloadAttachment(attachment);
+    } catch {
+      if (!srcUrl) return;
+      const a = document.createElement("a");
+      a.href = srcUrl;
+      a.download = attachment.fileName;
+      a.click();
+    }
   };
 
   const modal = (
@@ -195,7 +129,6 @@ export function FilePreviewModal({ attachment, senderName, onClose }: Props) {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       >
-        {/* ── Title bar (drag to move) ───────────────────────────────────────── */}
         <div
           className="flex items-center gap-2 px-4 py-3 shrink-0 border-b select-none"
           style={{ backgroundColor: "var(--color-header-bg)", borderColor: "var(--color-border)", cursor: "move" }}
@@ -212,7 +145,7 @@ export function FilePreviewModal({ attachment, senderName, onClose }: Props) {
 
           <button
             onClick={handleDownload}
-            disabled={!srcUrl}
+            disabled={!srcUrl && loading}
             className="w-8 h-8 flex items-center justify-center rounded-full shrink-0 transition-colors disabled:opacity-40"
             style={{ color: "var(--color-primary-500)" }}
             title="Télécharger"
@@ -234,7 +167,6 @@ export function FilePreviewModal({ attachment, senderName, onClose }: Props) {
           </button>
         </div>
 
-        {/* ── Content ───────────────────────────────────────────────────────── */}
         <div className="flex-1 overflow-hidden relative flex items-center justify-center" style={{ backgroundColor: "var(--color-surface-secondary)" }}>
           {loading && (
             <div className="flex flex-col items-center gap-3">
@@ -333,7 +265,6 @@ export function FilePreviewModal({ attachment, senderName, onClose }: Props) {
           )}
         </div>
 
-        {/* ── Resize handle (bottom-right corner) ────────────────────────────── */}
         <div
           className="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize"
           onPointerDown={onPointerDownResize}

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { chatService, isTauri, ConversationSummary, MessageDto } from "@/services/chatService";
+import { chatService, isTauri, ConversationSummary, MessageDto, mapMessage } from "@/services/chatService";
 import { wsService } from "@/services/wsService";
 import { useAuthStore } from "@/store/authStore";
 import { useNotificationStore } from "@/store/notificationStore";
@@ -25,7 +25,7 @@ interface ChatState {
   loadMessages: (conversationId: number) => Promise<void>;
   loadMoreMessages: (conversationId: number) => Promise<void>;
   sendMessage: (conversationId: number, content: string, replyToId?: number) => Promise<void>;
-  sendFileMessage: (conversationId: number, content: string, file: File, thumbnail: string | null, dataUrl: string, replyToId?: number) => Promise<void>;
+  sendFileMessage: (conversationId: number, content: string, file: File, thumbnail: string | null, dataUrl: string, replyToId?: number, messageType?: MessageDto["messageType"]) => Promise<void>;
   markAsRead: (conversationId: number) => Promise<void>;
   setCurrentConversation: (id: number | null) => void;
   setSearchQuery: (q: string) => void;
@@ -211,9 +211,19 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   },
 
   // ── Send file message ────────────────────────────────────────────────────
-  sendFileMessage: async (conversationId, content, file, thumbnail, dataUrl, replyToId) => {
+  sendFileMessage: async (conversationId, content, file, thumbnail, dataUrl, replyToId, messageType) => {
     const currentUserId = useAuthStore.getState().user?.id ?? 1;
     const tempId = -Date.now();
+
+    const resolvedType: MessageDto["messageType"] =
+        messageType ??
+        (file.type.startsWith("image/")
+            ? "image"
+            : file.name.startsWith("message-vocal")
+                ? "voice"
+                : file.type.startsWith("video/")
+                    ? "video"
+                    : "file");
 
     const tempAtt = {
       id: tempId,
@@ -223,7 +233,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       fileSize: file.size,
       thumbnail: thumbnail ?? (file.type.startsWith("image/") ? dataUrl : null),
     };
-    const msgType = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "file";
+    const lastPreview =
+        resolvedType === "voice" ? "🎤 Message vocal" : content || `📎 ${file.name}`;
     const tempMsg: MessageDto = {
       id: tempId,
       conversationId,
@@ -231,7 +242,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       senderName: useAuthStore.getState().user?.displayName ?? "Moi",
       senderAvatar: null,
       content: content || null,
-      messageType: msgType as any,
+      messageType: resolvedType,
       replyToId: replyToId ?? null,
       replyToContent: null,
       isEdited: false,
@@ -248,13 +259,15 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       },
       conversations: s.conversations.map((c) =>
           c.id === conversationId
-              ? { ...c, lastMessage: content || `📎 ${file.name}`, lastMessageAt: new Date().toISOString() }
+              ? { ...c, lastMessage: lastPreview, lastMessageAt: new Date().toISOString() }
               : c
       ),
     }));
 
     try {
-      const sent = await chatService.sendFileMessage(conversationId, content, file, thumbnail, dataUrl, replyToId);
+      const sent = await chatService.sendFileMessage(
+          conversationId, content, file, thumbnail, dataUrl, replyToId, resolvedType,
+      );
       set((s) => ({
         messagesMap: {
           ...s.messagesMap,
@@ -263,6 +276,40 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           ),
         },
       }));
+
+      if (!isTauri()) {
+        wsService.broadcastEvent({
+          type: "new_message",
+          conversation_id: conversationId,
+          message: {
+            id: sent.id,
+            conversation_id: conversationId,
+            conversationId,
+            sender_id: sent.senderId,
+            senderId: sent.senderId,
+            sender_name: sent.senderName,
+            senderName: sent.senderName,
+            sender_avatar: sent.senderAvatar,
+            senderAvatar: sent.senderAvatar,
+            content: sent.content,
+            message_type: sent.messageType,
+            messageType: sent.messageType,
+            reply_to_id: sent.replyToId,
+            replyToId: sent.replyToId,
+            reply_to_content: sent.replyToContent,
+            replyToContent: sent.replyToContent,
+            is_edited: sent.isEdited,
+            isEdited: sent.isEdited,
+            is_deleted: sent.isDeleted,
+            isDeleted: sent.isDeleted,
+            created_at: sent.createdAt,
+            createdAt: sent.createdAt,
+            status: sent.status,
+            attachments: sent.attachments,
+          },
+        });
+        wsService.simulateReceipts(conversationId, sent.id);
+      }
     } catch (e) {
       console.error("sendFileMessage error:", e);
       set((s) => ({
@@ -395,23 +442,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
       case "new_message": {
         const convId = event.conversation_id;
-        const raw = event.message;
-        const msg: MessageDto = {
-          id: Number(raw.id),
-          conversationId: Number(raw.conversation_id ?? raw.conversationId ?? convId),
-          senderId: raw.sender_id != null ? Number(raw.sender_id ?? raw.senderId) : null,
-          senderName: raw.sender_name ?? raw.senderName ?? null,
-          senderAvatar: raw.sender_avatar ?? raw.senderAvatar ?? null,
-          content: raw.content ?? null,
-          messageType: raw.message_type ?? raw.messageType ?? "text",
-          replyToId: raw.reply_to_id != null ? Number(raw.reply_to_id ?? raw.replyToId) : null,
-          replyToContent: raw.reply_to_content ?? raw.replyToContent ?? null,
-          isEdited: raw.is_edited ?? raw.isEdited ?? false,
-          isDeleted: raw.is_deleted ?? raw.isDeleted ?? false,
-          createdAt: raw.created_at ?? raw.createdAt ?? new Date().toISOString(),
-          status: raw.status ?? "sent",
-          attachments: raw.attachments ?? [],
-        };
+        const raw = event.message ?? {};
+        const msg: MessageDto = mapMessage({
+          ...raw,
+          conversation_id: raw.conversation_id ?? raw.conversationId ?? convId,
+        });
 
         // In web (mock) mode, persist incoming message to localStorage
         if (!isTauri()) {
@@ -445,9 +480,14 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           const isActive = s.currentConversationId === convId;
           const conversations = s.conversations.map((c) => {
             if (c.id !== convId) return c;
+            const last =
+              msg.messageType === "voice"
+                ? "🎤 Message vocal"
+                : msg.content ||
+                  (msg.attachments?.[0] ? `📎 ${msg.attachments[0].fileName}` : c.lastMessage);
             return {
               ...c,
-              lastMessage: msg.content ?? c.lastMessage,
+              lastMessage: last,
               lastMessageAt: msg.createdAt,
               unreadCount: isOwn || isActive ? 0 : c.unreadCount + 1,
             };
@@ -476,11 +516,16 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             // Cherche la conv dans le store ; si absente, utilise un nom générique
             const conv = s.conversations.find((c) => c.id === convId);
             const convName = conv?.name ?? `Conversation #${convId}`;
+            const preview =
+              msg.messageType === "voice"
+                ? "🎤 Message vocal"
+                : msg.content ||
+                  (msg.attachments?.[0] ? `📎 ${msg.attachments[0].fileName}` : "(message)");
             useNotificationStore.getState().addNotification({
               conversationId: convId,
               conversationName: convName,
               senderName: msg.senderName ?? "Inconnu",
-              content: msg.content ?? "(message)",
+              content: preview,
               createdAt: msg.createdAt,
               isPriority: false,
             });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useNavigate } from "react-router-dom";
 import { Sidebar } from "@/components/Sidebar";
 import { PriorityNotificationModal } from "@/components/PriorityNotificationModal";
 import { MessageActionsModal } from "@/components/MessageActionsModal";
@@ -13,6 +13,7 @@ export function MainLayout() {
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const { connectWs, disconnectWs } = useChatStore();
   const { notifGranted, setNotifGranted } = useNotificationStore();
+  const navigate = useNavigate();
 
   useEffect(() => {
     connectWs();
@@ -39,6 +40,24 @@ export function MainLayout() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/event")
+      .then(({ listen }) =>
+        listen<number>("priority-open-conversation", (e) => {
+          if (e.payload) navigate(`/conversations/${e.payload}`);
+        }),
+      )
+      .then((fn) => {
+        unlisten = fn;
+      })
+      .catch(() => {});
+    return () => {
+      unlisten?.();
+    };
+  }, [navigate]);
 
   return (
     <div className="flex h-full w-full overflow-hidden">

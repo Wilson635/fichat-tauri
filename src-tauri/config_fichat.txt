@@ -1,0 +1,6 @@
+Lien vers la bd
+postgresql://postgres:password@192.168.30.42:5432/enterprise_chat
+
+config de l'AD
+Adresse : 192.168.20.236
+DC=firsttrust,DC=cm

@@ -101,7 +101,7 @@ export interface MessageDto {
   senderName: string | null;
   senderAvatar: string | null;
   content: string | null;
-  messageType: "text" | "image" | "file" | "system";
+  messageType: "text" | "image" | "file" | "system" | "voice" | "video";
   replyToId: number | null;
   replyToContent: string | null;
   isEdited: boolean;
@@ -460,7 +460,18 @@ export const chatService = {
       thumbnail: string | null,
       dataUrl: string,
       replyToId?: number,
+      messageType?: MessageDto["messageType"],
   ): Promise<MessageDto> {
+    const resolvedType: MessageDto["messageType"] =
+        messageType ??
+        (file.type.startsWith("image/")
+            ? "image"
+            : file.name.startsWith("message-vocal")
+                ? "voice"
+                : file.type.startsWith("video/")
+                    ? "video"
+                    : "file");
+
     if (!isTauri()) {
       const uid = currentUid();
       const att: AttachmentDto = {
@@ -471,7 +482,6 @@ export const chatService = {
         fileSize: file.size,
         thumbnail: thumbnail ?? (file.type.startsWith("image/") ? dataUrl : null),
       };
-      const msgType = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "file";
       const msg: MessageDto = {
         id: nextId(),
         conversationId,
@@ -479,7 +489,7 @@ export const chatService = {
         senderName: null,
         senderAvatar: null,
         content: content || null,
-        messageType: msgType as any,
+        messageType: resolvedType,
         replyToId: replyToId ?? null,
         replyToContent: null,
         isEdited: false,
@@ -490,7 +500,10 @@ export const chatService = {
       };
       dbAddMessage(uid, msg);
       dbUpdateConversation(uid, conversationId, {
-        lastMessage: content || `📎 ${file.name}`,
+        lastMessage:
+            resolvedType === "voice"
+                ? "🎤 Message vocal"
+                : content || `📎 ${file.name}`,
         lastMessageAt: msg.createdAt,
       });
       return msg;
@@ -510,6 +523,7 @@ export const chatService = {
       fileType: file.type || "application/octet-stream",
       fileSize: file.size,
       replyToId: replyToId ?? null,
+      messageType: resolvedType,
     });
     return mapMessage(raw);
   },
@@ -557,16 +571,32 @@ export const chatService = {
 
   // ── Get raw file as base64 ────────────────────────────────────────────────────
 
-  async getFileAsBase64(filePath: string): Promise<string> {
+  async getFileAsBase64(filePath: string, attachmentId?: number): Promise<string> {
     if (!isTauri()) {
-      // In web mode, filePath is already a data URL — extract the base64 part
       if (filePath.startsWith("data:")) {
         return filePath.split(",")[1] ?? "";
       }
       return "";
     }
     const token = useAuthStore.getState().token!;
-    return invoke<string>("cmd_get_file_as_base64", { token, filePath });
+    if (attachmentId && attachmentId > 0) {
+      const data = await this.getAttachmentData(attachmentId);
+      return data.base64;
+    }
+    return invoke<string>("cmd_get_file_as_base64", { token, filePath, attachmentId: attachmentId ?? null });
+  },
+
+  async getAttachmentData(attachmentId: number): Promise<{ fileName: string; fileType: string | null; base64: string }> {
+    if (!isTauri()) {
+      return { fileName: "", fileType: null, base64: "" };
+    }
+    const token = useAuthStore.getState().token!;
+    const raw = await invoke<any>("cmd_get_attachment_data", { token, attachmentId });
+    return {
+      fileName: raw.file_name ?? raw.fileName ?? "",
+      fileType: raw.file_type ?? raw.fileType ?? null,
+      base64: raw.base64 ?? "",
+    };
   },
 
   // ── Mock-only helpers (web mode only — no-ops in Tauri) ──────────────────────

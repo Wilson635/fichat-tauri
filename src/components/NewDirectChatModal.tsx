@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { chatService, UserForChat } from "@/services/chatService";
 import { useChatStore } from "@/store/chatStore";
+import { Icon } from "@/components/Icon";
 
 const presenceColors: Record<string, string> = {
     online:  "#22c55e",
@@ -75,14 +76,8 @@ export function NewDirectChatModal({ onClose }: Props) {
                     <h2 className="font-semibold" style={{ color: "var(--color-text-primary)" }}>
                         Nouvelle discussion
                     </h2>
-                    <button
-                        onClick={onClose}
-                        className="w-8 h-8 rounded-full flex items-center justify-center transition-colors"
-                        style={{ color: "var(--color-text-muted)" }}
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
+                    <button onClick={onClose} className="icon-btn">
+                        <Icon name="x" size={18} />
                     </button>
                 </div>
 
@@ -92,9 +87,7 @@ export function NewDirectChatModal({ onClose }: Props) {
                         className="flex items-center gap-2 rounded-lg px-3 py-2 border"
                         style={{ backgroundColor: "var(--color-input-bg)", borderColor: "var(--color-border)" }}
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "var(--color-text-muted)" }}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        </svg>
+                        <Icon name="search" size={16} style={{ color: "var(--color-text-muted)" }} />
                         <input
                             type="text"
                             value={search}
@@ -106,9 +99,7 @@ export function NewDirectChatModal({ onClose }: Props) {
                         />
                         {search && (
                             <button onClick={() => setSearch("")}>
-                                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "var(--color-text-muted)" }}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
+                                <Icon name="x" size={14} style={{ color: "var(--color-text-muted)" }} />
                             </button>
                         )}
                     </div>

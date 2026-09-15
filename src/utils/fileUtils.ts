@@ -12,8 +12,9 @@ export function getFileColor(mimeType: string | null): string {
   if (!mimeType) return "#6b7280";
   if (mimeType.startsWith("image/")) return "#3b82f6";
   if (mimeType === "application/pdf") return "#ef4444";
-  if (mimeType.includes("word") || mimeType.includes("document")) return "#2563eb";
+  // Excel MIME contains "officedocument" — check spreadsheet/sheet before Word.
   if (mimeType.includes("excel") || mimeType.includes("spreadsheet") || mimeType.includes("sheet")) return "#16a34a";
+  if (mimeType.includes("wordprocessing") || mimeType.includes("msword") || mimeType.includes("word")) return "#2563eb";
   if (mimeType.includes("powerpoint") || mimeType.includes("presentation")) return "#ea580c";
   if (mimeType.startsWith("video/")) return "#8b5cf6";
   if (mimeType.startsWith("audio/")) return "#ec4899";
@@ -35,10 +36,11 @@ export function getFileIcon(mimeType: string | null | undefined): string {
   if (mimeType.startsWith("audio/"))        return iconAudio;
   if (mimeType.includes("zip") || mimeType.includes("rar") || mimeType.includes("archive") || mimeType.includes("compressed"))
     return iconArchive;
-  if (mimeType.includes("word") || mimeType.includes("document"))
-    return iconWord;
+  // Excel MIME is officedocument.spreadsheetml.sheet — never match generic "document" first.
   if (mimeType.includes("excel") || mimeType.includes("spreadsheet") || mimeType.includes("sheet"))
     return iconExcel;
+  if (mimeType.includes("wordprocessing") || mimeType.includes("msword") || mimeType.includes("word"))
+    return iconWord;
   if (mimeType.includes("powerpoint") || mimeType.includes("presentation"))
     return iconPowerpoint;
   if (mimeType.startsWith("text/"))          return iconText;

@@ -4,6 +4,7 @@ import { useChatStore } from "@/store/chatStore";
 import { useAuthStore } from "@/store/authStore";
 import { isToday, isYesterday, format } from "date-fns";
 import type { ConversationSummary } from "@/services/chatService";
+import { Icon } from "@/components/Icon";
 
 function formatConvTime(iso: string | null): string {
   if (!iso) return "";
@@ -21,7 +22,7 @@ function ConversationAvatar({ conv, size = 46 }: { conv: ConversationSummary; si
         <img
             src={conv.avatarPath}
             alt={conv.name}
-            className="rounded-full object-cover shrink-0"
+            className="rounded-xl object-cover shrink-0"
             style={{ width: size, height: size }}
         />
     );
@@ -30,39 +31,30 @@ function ConversationAvatar({ conv, size = 46 }: { conv: ConversationSummary; si
   if (conv.convType === "group") {
     return (
         <div
-            className="rounded-full shrink-0 flex items-center justify-center"
+            className="rounded-xl shrink-0 flex items-center justify-center"
             style={{
               width: size,
               height: size,
-              backgroundColor: `hsl(${hue}, 45%, 42%)`,
+              backgroundColor: `hsl(${hue}, 42%, 44%)`,
+              color: "#fff",
             }}
         >
-            <svg xmlns="http://www.w3.org/2000/svg" width="2em" height="2em" viewBox="0 0 24 24">
-                <path d="M0 0h24v24H0z" fill="none" />
-                <circle cx="15" cy="6" r="3" fill="#fff" opacity=".4" />
-                <ellipse cx="16" cy="17" fill="#fff" opacity=".4" rx="5" ry="3" />
-                <circle cx="9.001" cy="6" r="4" fill="currentColor" />
-                <ellipse cx="9.001" cy="17.001" fill="currentColor" rx="7" ry="4" />
-            </svg>
-
+            <Icon name="users" size={Math.round(size * 0.42)} strokeWidth={1.8} />
         </div>
     );
   }
 
+  const initials = conv.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
   return (
       <div
-          className="rounded-full shrink-0 flex items-center justify-center"
+          className="rounded-xl shrink-0 flex items-center justify-center text-white text-xs font-semibold"
           style={{
             width: size,
             height: size,
-            backgroundColor: `hsl(${hue}, 55%, 45%)`,
+            backgroundColor: `hsl(${hue}, 48%, 46%)`,
           }}
       >
-          <svg xmlns="http://www.w3.org/2000/svg" width="2em" height="2em" viewBox="0 0 24 24">
-              <path d="M0 0h24v24H0z" fill="none" />
-              <circle cx="12" cy="6" r="4" fill="currentColor" />
-              <ellipse cx="12" cy="17" fill="#fff" opacity=".5" rx="7" ry="4" />
-          </svg>
+          {initials}
       </div>
   );
 }
@@ -169,10 +161,8 @@ export function ConversationList({ searchQuery }: Props) {
   if (!filtered.length) {
     return (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 px-8 text-center">
-          <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ backgroundColor: "var(--color-surface-secondary)" }}>
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ color: "var(--color-text-muted)" }}>
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-            </svg>
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ backgroundColor: "var(--color-surface-secondary)" }}>
+            <Icon name="message" size={28} style={{ color: "var(--color-text-muted)" }} />
           </div>
           <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
             {searchQuery ? "Aucun résultat" : "Aucune conversation"}
@@ -195,7 +185,7 @@ export function ConversationList({ searchQuery }: Props) {
               <button
                   key={conv.id}
                   onClick={() => navigate(`/conversations/${conv.id}`)}
-                  className="w-full flex items-center gap-3 px-3 py-3 transition-colors text-left"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 mx-1 rounded-xl transition-colors text-left"
                   style={{
                     backgroundColor: isActive ? "var(--color-active)" : "transparent",
                   }}
