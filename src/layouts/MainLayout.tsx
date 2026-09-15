@@ -62,7 +62,7 @@ export function MainLayout() {
   return (
     <div className="flex h-full w-full overflow-hidden">
       <Sidebar onOpenGlobalSearch={() => setShowGlobalSearch(true)} />
-      <main className="flex-1 overflow-hidden relative">
+      <main className="flex-1 overflow-hidden relative min-w-0">
         <Outlet />
       </main>
       <PriorityNotificationModal />

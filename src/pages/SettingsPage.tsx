@@ -36,7 +36,7 @@ const NAV: { id: SettingsSection; label: string; hint: string; icon: IconName }[
   { id: "appearance", label: "Apparence", hint: "Thème, couleurs, fond", icon: "palette" },
   { id: "notifications", label: "Notifications", hint: "Sons et alertes", icon: "bell" },
   { id: "account", label: "Compte", hint: "Session et profil", icon: "user" },
-  { id: "about", label: "À propos", hint: "Version de FiChat", icon: "info" },
+  { id: "about", label: "À propos", hint: "Présentation de FiChat", icon: "info" },
 ];
 
 function Toggle({
@@ -113,25 +113,33 @@ function SettingsRow({
   );
 }
 
-function ChatPreview() {
+function ChatPreview({ tall = false }: { tall?: boolean }) {
   const { fontSize } = useThemeStore();
   const isDark = document.documentElement.classList.contains("dark");
   const fontPx = fontSizes.find((f) => f.id === fontSize)?.px ?? 15;
 
   return (
-    <div className="rounded-xl overflow-hidden border" style={{ borderColor: "var(--color-border)" }}>
-      <div className="flex items-center gap-2 px-3 py-2" style={{ backgroundColor: "var(--color-header-bg)" }}>
+    <div
+      className={`rounded-xl overflow-hidden border ${tall ? "flex flex-col h-full min-h-0" : ""}`}
+      style={{ borderColor: "var(--color-border)" }}
+    >
+      <div className="flex items-center gap-2 px-3 py-2 shrink-0" style={{ backgroundColor: "var(--color-header-bg)" }}>
         <div
           className="w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-semibold text-white"
           style={{ backgroundColor: "var(--color-primary-500)" }}
         >
           AD
         </div>
-        <span className="text-[13px] font-medium" style={{ color: "var(--color-text-primary)" }}>
-          Aperçu
-        </span>
+        <div className="min-w-0">
+          <span className="block text-[13px] font-medium truncate" style={{ color: "var(--color-text-primary)" }}>
+            Aperçu
+          </span>
+          {tall && (
+            <span className="block text-[11px]" style={{ color: "var(--color-text-muted)" }}>en ligne</span>
+          )}
+        </div>
       </div>
-      <div className="chat-bg px-3 py-3 space-y-2" style={{ minHeight: 118 }}>
+      <div className={`chat-bg px-3 py-3 space-y-2 ${tall ? "flex-1 min-h-0 overflow-y-auto" : ""}`} style={{ minHeight: tall ? undefined : 118 }}>
         <div className="flex justify-start">
           <div
             className="msg-copy msg-bubble"
@@ -146,9 +154,7 @@ function ChatPreview() {
           >
             Bonjour
             <span className="msg-meta">
-              <span className="text-[10px] tabular-nums" style={{ color: "#667781" }}>
-                14:32
-              </span>
+              <span className="text-[10px] tabular-nums" style={{ color: "#667781" }}>14:32</span>
             </span>
           </div>
         </div>
@@ -165,13 +171,60 @@ function ChatPreview() {
           >
             hello
             <span className="msg-meta">
-              <span className="text-[10px] tabular-nums" style={{ color: "#667781" }}>
-                14:33
-              </span>
+              <span className="text-[10px] tabular-nums" style={{ color: "#667781" }}>14:33</span>
             </span>
           </div>
         </div>
+        {tall && (
+          <>
+            <div className="flex justify-start">
+              <div
+                className="msg-copy msg-bubble"
+                style={{
+                  backgroundColor: isDark ? "#1E2A31" : "#ffffff",
+                  fontSize: `${fontPx}px`,
+                  color: isDark ? "#e9edef" : "#111b21",
+                  borderRadius: "16px 16px 16px 4px",
+                  border: isDark ? "1px solid #2a3942" : "1px solid #e9edef",
+                  padding: "10px 12px 8px",
+                }}
+              >
+                Le fond et la taille s’appliquent ici.
+                <span className="msg-meta">
+                  <span className="text-[10px] tabular-nums" style={{ color: "#667781" }}>14:34</span>
+                </span>
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <div
+                className="msg-copy msg-bubble"
+                style={{
+                  backgroundColor: isDark ? "#1C3A34" : "#E7F0EC",
+                  fontSize: `${fontPx}px`,
+                  color: isDark ? "#e9edef" : "#111b21",
+                  borderRadius: "16px 16px 4px 16px",
+                  padding: "10px 12px 8px",
+                }}
+              >
+                Parfait, merci.
+                <span className="msg-meta">
+                  <span className="text-[10px] tabular-nums" style={{ color: "#667781" }}>14:34</span>
+                </span>
+              </div>
+            </div>
+          </>
+        )}
       </div>
+      {tall && (
+        <div className="shrink-0 px-3 py-2.5 flex items-center gap-2" style={{ borderTop: "1px solid var(--color-border)", backgroundColor: "var(--color-header-bg)" }}>
+          <div className="flex-1 h-9 rounded-xl px-3 flex items-center text-[12px]" style={{ backgroundColor: "var(--color-input-bg)", color: "var(--color-text-muted)" }}>
+            Message…
+          </div>
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: "var(--color-primary-500)" }}>
+            <Icon name="send" size={14} style={{ color: "#fff" }} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -308,7 +361,9 @@ function AppearanceSection() {
               );
             })}
           </div>
-          <ChatPreview />
+          <div className="settings-inline-preview">
+            <ChatPreview />
+          </div>
         </div>
       </SettingsCard>
     </div>
@@ -542,25 +597,154 @@ function AboutSection() {
           À propos
         </h2>
         <p className="text-[13px] mt-1" style={{ color: "var(--color-text-muted)" }}>
-          Informations sur l’application.
+          Présentation de FiChat et informations techniques.
         </p>
       </div>
 
       <div className="flex items-center gap-4 p-4 rounded-2xl border" style={{ backgroundColor: "var(--color-surface)", borderColor: "var(--color-border)" }}>
-        <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ backgroundColor: "var(--color-primary-500)" }}>
+        <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ backgroundColor: "var(--color-primary-500)" }}>
           <Icon name="message" size={22} style={{ color: "#fff" }} />
         </div>
         <div>
           <p className="text-[15px] font-semibold" style={{ color: "var(--color-text-primary)" }}>FiChat</p>
-          <p className="text-[12px]" style={{ color: "var(--color-text-muted)" }}>Messagerie d’entreprise · version 1.0.0</p>
+          <p className="text-[12px]" style={{ color: "var(--color-text-muted)" }}>Messagerie interne First Trust · version 1.0.0</p>
         </div>
       </div>
 
+      <div className="rounded-2xl border p-5" style={{ backgroundColor: "var(--color-surface)", borderColor: "var(--color-border)" }}>
+        <p className="text-[13px] font-semibold mb-2" style={{ color: "var(--color-text-primary)" }}>
+          Qu’est-ce que FiChat ?
+        </p>
+        <p className="text-[13px] leading-relaxed" style={{ color: "var(--color-text-secondary)" }}>
+          FiChat est l’application de messagerie interne de First Trust. Elle permet aux collaborateurs
+          d’échanger en temps réel, en discussions privées ou en groupes, depuis une application de bureau Windows
+          connectée à l’annuaire d’entreprise.
+        </p>
+        <p className="text-[13px] leading-relaxed mt-3" style={{ color: "var(--color-text-secondary)" }}>
+          L’authentification passe par Active Directory (LDAP) : aucun compte séparé n’est créé.
+          Les messages, fichiers et notes vocales sont stockés côté serveur. Les alertes prioritaires
+          peuvent interrompre le travail lorsqu’un message l’exige, et les administrateurs disposent
+          d’une console pour suivre l’activité, synchroniser l’annuaire et consulter le journal de l’application.
+        </p>
+        <ul className="mt-4 space-y-2 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
+          {[
+            "Discussions directes et groupes d’équipe",
+            "Partage de documents, images et messages vocaux",
+            "Notifications natives, mode Ne pas déranger et alertes bloquantes",
+            "Profil, présence et préférences d’apparence par utilisateur",
+            "Administration : utilisateurs, sync LDAP et logs runtime exportables",
+          ].map((item) => (
+            <li key={item} className="flex items-start gap-2.5">
+              <Icon name="checkBadge" size={16} className="mt-0.5 shrink-0" style={{ color: "var(--color-primary-500)" }} />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
       <SettingsCard>
-        <SettingsRow icon="lock" title="Connexion" description="LDAP / Active Directory" />
-        <SettingsRow icon="globe" title="Client" description={isTauri() ? "Application bureau Windows" : "Aperçu web"} />
-        <SettingsRow icon="info" title="Organisation" description="First Trust" />
+        <SettingsRow icon="lock" title="Authentification" description="LDAP / Active Directory — identifiants du domaine" />
+        <SettingsRow icon="laptop" title="Application de bureau Windows" description={isTauri() ? "FiChat 1.0.0" : "Aperçu web"} />
+        <SettingsRow icon="info" title="Éditeur" description="First Trust" />
       </SettingsCard>
+    </div>
+  );
+}
+
+function SettingsAside({ section }: { section: SettingsSection }) {
+  const { theme, accentColor, fontSize, chatBackground } = useThemeStore();
+  const { globalSound, dndEnabled, dndStartHour, dndEndHour, notifGranted } = useNotificationStore();
+  const { user } = useAuthStore();
+
+  const accent = accentColors.find((c) => c.id === accentColor);
+  const bg = chatBackgrounds.find((b) => b.id === chatBackground);
+  const themeLabel = theme === "light" ? "Clair" : theme === "dark" ? "Sombre" : "Système";
+  const fontLabel = fontSizes.find((f) => f.id === fontSize)?.label ?? "Standard";
+  const soundLabel = globalSound === "none" ? "Silence" : globalSound === "priority" ? "Urgent" : "Doux";
+  const initials = user?.displayName?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() ?? "?";
+
+  if (section === "appearance") {
+    return (
+      <div className="settings-aside-card">
+        <div className="px-4 py-3 shrink-0" style={{ borderBottom: "1px solid var(--color-border)" }}>
+          <p className="text-[13px] font-semibold" style={{ color: "var(--color-text-primary)" }}>Aperçu live</p>
+          <p className="text-[11px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+            {themeLabel} · {accent?.label} · {fontLabel} · {bg?.label}
+          </p>
+        </div>
+        <div className="flex-1 min-h-0 p-3">
+          <ChatPreview tall />
+        </div>
+      </div>
+    );
+  }
+
+  if (section === "notifications") {
+    return (
+      <div className="settings-aside-card p-5 gap-4">
+        <div>
+          <p className="text-[13px] font-semibold" style={{ color: "var(--color-text-primary)" }}>État actuel</p>
+          <p className="text-[12px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>Récapitulatif des alertes sur cet appareil.</p>
+        </div>
+        <div className="space-y-3">
+          {[
+            { icon: "bell" as IconName, title: "Permission", value: notifGranted ? "Accordée" : "Non accordée" },
+            { icon: "message" as IconName, title: "Son", value: soundLabel },
+            {
+              icon: "moon" as IconName,
+              title: "Ne pas déranger",
+              value: dndEnabled
+                ? `${String(dndStartHour).padStart(2, "0")}h – ${String(dndEndHour).padStart(2, "0")}h`
+                : "Désactivé",
+            },
+          ].map((row) => (
+            <div key={row.title} className="flex items-center gap-3 p-3 rounded-xl" style={{ backgroundColor: "var(--color-surface-secondary)" }}>
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: "var(--color-surface)", color: "var(--color-text-secondary)" }}>
+                <Icon name={row.icon} size={16} />
+              </div>
+              <div>
+                <p className="text-[12px]" style={{ color: "var(--color-text-muted)" }}>{row.title}</p>
+                <p className="text-[13px] font-semibold" style={{ color: "var(--color-text-primary)" }}>{row.value}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (section === "account") {
+    return (
+      <div className="settings-aside-card items-center justify-center p-8 text-center">
+        <div
+          className="w-20 h-20 rounded-2xl flex items-center justify-center text-xl font-semibold text-white overflow-hidden mb-4"
+          style={{ backgroundColor: "var(--color-primary-500)" }}
+        >
+          {user?.avatarPath ? <img src={user.avatarPath} alt="" className="w-full h-full object-cover" /> : initials}
+        </div>
+        <p className="text-[16px] font-semibold" style={{ color: "var(--color-text-primary)" }}>{user?.displayName}</p>
+        <p className="text-[13px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>{user?.email || `@${user?.username}`}</p>
+        <p className="text-[12px] mt-3 px-2.5 py-1 rounded-md inline-block" style={{ backgroundColor: "var(--color-surface-secondary)", color: "var(--color-text-secondary)" }}>
+          {user?.role === "system_admin" ? "Administrateur système" : "Utilisateur"}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="settings-aside-card p-6 overflow-y-auto">
+      <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4" style={{ backgroundColor: "var(--color-primary-500)" }}>
+        <Icon name="message" size={22} style={{ color: "#fff" }} />
+      </div>
+      <p className="text-[15px] font-semibold" style={{ color: "var(--color-text-primary)" }}>FiChat</p>
+      <p className="text-[12px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>Version 1.0.0 · First Trust</p>
+      <p className="text-[13px] leading-relaxed mt-4" style={{ color: "var(--color-text-secondary)" }}>
+        Messagerie interne sécurisée pour les équipes First Trust : échanges privés et de groupe,
+        fichiers et vocaux, alertes prioritaires, le tout authentifié via l’Active Directory.
+      </p>
+      <p className="text-[12px] mt-4" style={{ color: "var(--color-text-muted)" }}>
+        {isTauri() ? "Application de bureau Windows" : "Aperçu web"}
+      </p>
     </div>
   );
 }
@@ -590,7 +774,7 @@ export function SettingsPage() {
         </h1>
       </div>
 
-      <div className="flex-1 min-h-0 flex">
+      <div className="flex-1 min-h-0 min-w-0 flex">
         <nav
           className="shrink-0 py-4 px-3 overflow-y-auto"
           style={{ width: 232, borderRight: "1px solid var(--color-border)", backgroundColor: "var(--color-sidebar-bg)" }}
@@ -618,13 +802,18 @@ export function SettingsPage() {
           })}
         </nav>
 
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-[640px] px-8 py-7">
-            {section === "appearance" && <AppearanceSection />}
-            {section === "notifications" && <NotificationsSection />}
-            {section === "account" && <AccountSection onLogout={handleLogout} />}
-            {section === "about" && <AboutSection />}
+        <div className="settings-stage">
+          <div className="settings-form">
+            <div className="settings-form-inner">
+              {section === "appearance" && <AppearanceSection />}
+              {section === "notifications" && <NotificationsSection />}
+              {section === "account" && <AccountSection onLogout={handleLogout} />}
+              {section === "about" && <AboutSection />}
+            </div>
           </div>
+          <aside className="settings-aside">
+            <SettingsAside section={section} />
+          </aside>
         </div>
       </div>
     </div>

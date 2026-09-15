@@ -232,8 +232,162 @@ button, input, textarea, select {
 .settings-card > * + * {
   border-top: 1px solid var(--color-border);
 }
-.dark .settings-page {
+.dark .settings-page,
+.dark .admin-page {
   --color-border: rgba(148, 163, 184, 0.10);
+}
+
+.settings-page {
+  container-type: inline-size;
+  container-name: settings;
+  min-width: 0;
+}
+.settings-stage {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.settings-form {
+  flex: 1 1 640px;
+  min-width: 0;
+  overflow-y: auto;
+}
+.settings-form-inner {
+  max-width: 640px;
+  padding: 1.75rem 2rem;
+}
+.settings-aside {
+  display: none;
+  flex: 1 1 360px;
+  min-width: 0;
+  flex-direction: column;
+  padding: 1.75rem 1.5rem 1.75rem 0;
+  overflow: hidden;
+}
+.settings-aside-card {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 1rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+@container settings (min-width: 980px) {
+  .settings-aside { display: flex; }
+  .settings-inline-preview { display: none; }
+}
+
+@container settings (max-width: 720px) {
+  .settings-form-inner { padding: 1rem 1.15rem; }
+}
+
+/* Admin: layout follows the pane width, not the viewport (sidebar steals space). */
+.admin-page {
+  container-type: inline-size;
+  container-name: admin;
+  min-width: 0;
+}
+.admin-shell {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.admin-nav {
+  width: 232px;
+  flex-shrink: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 1rem 0.75rem;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-sidebar-bg);
+}
+.admin-nav-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.75rem;
+  text-align: left;
+  margin-bottom: 2px;
+}
+.admin-nav-hint {
+  display: block;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+.admin-body {
+  flex: 1;
+  min-width: 0;
+}
+.admin-pad {
+  padding: 1.75rem 2rem;
+  max-width: none;
+  width: 100%;
+}
+.admin-grid-kpis {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.admin-grid-charts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+.admin-grid-sync {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+.admin-health-hint {
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  color: var(--color-text-muted);
+}
+
+@container admin (min-width: 860px) {
+  .admin-grid-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .admin-grid-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-grid-sync { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+}
+
+@container admin (max-width: 720px) {
+  .admin-shell { flex-direction: column; }
+  .admin-nav {
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+    gap: 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+    padding: 8px 12px;
+  }
+  .admin-nav-btn {
+    width: auto;
+    flex-shrink: 0;
+    margin-bottom: 0;
+    padding: 0.5rem 0.75rem;
+  }
+  .admin-nav-hint { display: none; }
+  .admin-pad { padding: 1rem 1.15rem; max-width: none; }
+  .admin-col-presence { display: none; }
+}
+
+@container admin (max-width: 520px) {
+  .admin-grid-kpis { grid-template-columns: minmax(0, 1fr); }
+  .admin-col-dept { display: none; }
 }
 
 .hover-bg { transition: background-color 0.15s; }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
 import { useThemeStore } from "@/store/themeStore";
 import { useChatStore } from "@/store/chatStore";
@@ -20,6 +20,9 @@ export function Sidebar({ onOpenGlobalSearch }: SidebarProps) {
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showNewDirect, setShowNewDirect] = useState(false);
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const compactList = ["/admin", "/settings", "/profile"].some((p) => pathname.startsWith(p));
+  const onChats = pathname === "/" || pathname.startsWith("/conversations");
 
   const toggleTheme = () => setTheme(theme === "dark" ? "light" : "dark");
 
@@ -30,7 +33,7 @@ export function Sidebar({ onOpenGlobalSearch }: SidebarProps) {
   return (
     <aside
       className="flex shrink-0"
-      style={{ width: 380, borderRight: "1px solid var(--color-border)" }}
+      style={{ width: compactList ? 64 : 380, borderRight: "1px solid var(--color-border)" }}
     >
       <div
         className="flex flex-col items-center justify-between py-4 shrink-0"
@@ -52,6 +55,14 @@ export function Sidebar({ onOpenGlobalSearch }: SidebarProps) {
 
           <div className="w-7 my-1" style={{ height: 1, backgroundColor: "rgba(255,255,255,0.12)" }} />
 
+          <button
+            type="button"
+            title="Discussions"
+            onClick={() => navigate("/")}
+            className={`icon-btn-rail ${onChats ? "is-active" : ""}`}
+          >
+            <Icon name="message" size={18} />
+          </button>
           <button type="button" title="Nouvelle discussion" onClick={() => setShowNewDirect(true)} className="icon-btn-rail">
             <Icon name="userPlus" size={18} />
           </button>
@@ -91,6 +102,7 @@ export function Sidebar({ onOpenGlobalSearch }: SidebarProps) {
         </div>
       </div>
 
+      {!compactList && (
       <div className="flex flex-col flex-1 min-w-0" style={{ backgroundColor: "var(--color-sidebar-bg)" }}>
         <div className="flex items-center justify-between px-5 shrink-0" style={{ height: 60 }}>
           <span className="font-semibold text-[15px] tracking-tight" style={{ color: "var(--color-text-primary)" }}>
@@ -135,6 +147,7 @@ export function Sidebar({ onOpenGlobalSearch }: SidebarProps) {
 
         <ConversationList searchQuery={searchQuery} onNewGroup={() => setShowNewGroup(true)} />
       </div>
+      )}
 
       {showNewDirect && <NewDirectChatModal onClose={() => setShowNewDirect(false)} />}
       {showNewGroup && <NewGroupModal onClose={() => setShowNewGroup(false)} />}
