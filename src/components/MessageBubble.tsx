@@ -3,9 +3,10 @@ import { format, isToday, isYesterday } from "date-fns";
 import { fr } from "date-fns/locale";
 import type { MessageDto, AttachmentDto } from "@/services/chatService";
 import { useAuthStore } from "@/store/authStore";
-import { formatFileSize, isImage, isVideo, isAudio } from "@/utils/fileUtils";
+import { formatFileSize, isImage, isVideo, isAudio, fileKind } from "@/utils/fileUtils";
 import { useAttachmentUrl, downloadAttachment, previewSrc } from "@/utils/attachmentUrl";
 import { Icon } from "@/components/Icon";
+import { AttachmentVisualPreview, DocMetaRow } from "@/components/DocPreview";
 
 export function formatDateSeparator(iso: string): string {
     const d = new Date(iso);
@@ -35,21 +36,6 @@ function parseVoiceDuration(fileName: string): number | null {
     const m = fileName.match(/message-vocal-(\d+)s[-_.]/i);
     if (!m) return null;
     return finiteSeconds(Number(m[1]));
-}
-
-function getExtension(filename: string): string {
-    return filename.split(".").pop()?.toLowerCase() ?? "";
-}
-
-function getDocAccent(ext: string): { bg: string; fg: string; label: string } {
-    if (["doc", "docx"].includes(ext)) return { bg: "#2B579A", fg: "#fff", label: "DOC" };
-    if (["xls", "xlsx", "xlsm", "xlsb", "csv"].includes(ext)) return { bg: "#217346", fg: "#fff", label: "XLS" };
-    if (["ppt", "pptx"].includes(ext)) return { bg: "#C43E1C", fg: "#fff", label: "PPT" };
-    if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) return { bg: "#5B6570", fg: "#fff", label: "ZIP" };
-    if (ext === "pdf") return { bg: "#E11D48", fg: "#fff", label: "PDF" };
-    if (["mp4", "mov", "avi", "mkv", "webm"].includes(ext)) return { bg: "#6D28D9", fg: "#fff", label: "VID" };
-    if (["mp3", "wav", "ogg", "m4a", "opus"].includes(ext)) return { bg: "#0F766E", fg: "#fff", label: "AUD" };
-    return { bg: "#475569", fg: "#fff", label: (ext.toUpperCase() || "DOC").slice(0, 4) };
 }
 
 function StatusIcon({ status }: { status: MessageDto["status"] }) {
@@ -86,19 +72,29 @@ function StatusIcon({ status }: { status: MessageDto["status"] }) {
     return null;
 }
 
-function FileGlyph({ ext }: { ext: string }) {
-    const accent = getDocAccent(ext);
+function FileGlyph({ fileName, mime }: { fileName: string; mime?: string | null }) {
+    const kind = fileKind(fileName, mime);
+    const label = kind === "pdf" ? "PDF" : (fileName.split(".").pop() ?? "DOC").toUpperCase().slice(0, 4);
+    const bg =
+        kind === "word" ? "#2B579A" :
+        kind === "spreadsheet" ? "#217346" :
+        kind === "slides" ? "#C43E1C" :
+        kind === "archive" ? "#5B6570" :
+        kind === "pdf" ? "#E11D48" :
+        kind === "video" ? "#6D28D9" :
+        kind === "audio" ? "#0F766E" :
+        "#475569";
     return (
         <div className="relative shrink-0" style={{ width: 34, height: 42 }} aria-hidden>
             <svg viewBox="0 0 34 42" className="absolute inset-0 w-full h-full">
-                <path d="M3.5 2.5h18.2L31.5 12.3V38a3.5 3.5 0 0 1-3.5 3.5H7A3.5 3.5 0 0 1 3.5 38V6A3.5 3.5 0 0 1 7 2.5z" fill={accent.bg} />
+                <path d="M3.5 2.5h18.2L31.5 12.3V38a3.5 3.5 0 0 1-3.5 3.5H7A3.5 3.5 0 0 1 3.5 38V6A3.5 3.5 0 0 1 7 2.5z" fill={bg} />
                 <path d="M21.7 2.5v7.2c0 1.4 1.1 2.5 2.5 2.5h7.3" fill="rgba(255,255,255,0.28)" />
             </svg>
             <span
                 className="absolute left-0 right-0 text-center font-bold tracking-wide"
-                style={{ bottom: 7, fontSize: 8, color: accent.fg, letterSpacing: "0.06em" }}
+                style={{ bottom: 7, fontSize: 8, color: "#fff", letterSpacing: "0.06em" }}
             >
-                {accent.label}
+                {label}
             </span>
         </div>
     );
@@ -113,49 +109,43 @@ function DocCard({
     isOwn: boolean;
     onOpen: () => void;
 }) {
-    const ext = getExtension(attachment.fileName);
-    const accent = getDocAccent(ext);
-
     const handleSave = (e: React.MouseEvent) => {
         e.stopPropagation();
         downloadAttachment(attachment).catch(() => {});
     };
 
     return (
-        <div className="px-2.5 pt-2.5 pb-1" style={{ minWidth: 228, maxWidth: 280 }}>
+        <div className="p-1.5" style={{ minWidth: 228, maxWidth: 280 }}>
             <button
                 type="button"
                 onClick={onOpen}
-                className="w-full flex items-center gap-3 text-left rounded-xl px-2 py-2 transition-colors"
+                className="w-full text-left rounded-xl overflow-hidden"
                 style={{ backgroundColor: isOwn ? "rgba(15, 23, 42, 0.06)" : "var(--color-surface-secondary)" }}
             >
-                <FileGlyph ext={ext} />
-                <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-medium leading-snug truncate" style={{ color: "var(--color-text-primary)" }}>
-                        {attachment.fileName}
-                    </p>
-                    <p className="text-[11px] mt-0.5 tabular-nums" style={{ color: "var(--color-text-muted)" }}>
-                        {ext.toUpperCase() || accent.label} · {formatFileSize(attachment.fileSize) || "Fichier"}
-                    </p>
+                <div className="doc-bubble-preview">
+                    <AttachmentVisualPreview attachment={attachment} variant="bubble" />
                 </div>
-                <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={handleSave}
-                    onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            handleSave(e as unknown as React.MouseEvent);
-                        }
-                    }}
-                    className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                    style={{ color: "var(--color-text-muted)" }}
-                    title="Enregistrer"
-                >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                </span>
+                <div className="flex items-center gap-1 px-2 py-2">
+                    <div className="flex-1 min-w-0">
+                        <DocMetaRow fileName={attachment.fileName} mime={attachment.fileType} fileSize={attachment.fileSize} />
+                    </div>
+                    <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={handleSave}
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                handleSave(e as unknown as React.MouseEvent);
+                            }
+                        }}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                        style={{ color: "var(--color-text-muted)" }}
+                        title="Enregistrer"
+                    >
+                        <Icon name="download" size={15} />
+                    </span>
+                </div>
             </button>
         </div>
     );
@@ -350,7 +340,6 @@ function VideoPreview({
         );
     }
 
-    const ext = getExtension(attachment.fileName);
     return (
         <div className="px-2.5 pt-2.5 pb-1" style={{ minWidth: 220, maxWidth: 280 }}>
             <button
@@ -359,7 +348,7 @@ function VideoPreview({
                 className="w-full flex items-center gap-3 text-left rounded-xl px-2 py-2"
                 style={{ backgroundColor: isOwn ? "rgba(15, 23, 42, 0.06)" : "var(--color-surface-secondary)" }}
             >
-                <FileGlyph ext={ext || "mp4"} />
+                <FileGlyph fileName={attachment.fileName} mime={attachment.fileType} />
                 <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-medium truncate">{attachment.fileName}</p>
                     <p className="text-[11px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>
@@ -422,7 +411,7 @@ function ImageAttachment({
 
 function isVoiceAttachment(messageType: string | undefined, att: AttachmentDto): boolean {
     if (messageType === "voice") return true;
-    return isAudio(att.fileType) && /^message-vocal/i.test(att.fileName);
+    return isAudio(att.fileType, att.fileName) && /^message-vocal/i.test(att.fileName);
 }
 
 function AttachmentView({
@@ -436,13 +425,13 @@ function AttachmentView({
     onOpen: (a: AttachmentDto) => void;
     messageType?: string;
 }) {
-    if (isVoiceAttachment(messageType, attachment) || isAudio(attachment.fileType)) {
+    if (isVoiceAttachment(messageType, attachment) || isAudio(attachment.fileType, attachment.fileName)) {
         return <AudioPlayer attachment={attachment} isOwn={isOwn} voice={isVoiceAttachment(messageType, attachment)} />;
     }
-    if (isImage(attachment.fileType)) {
+    if (isImage(attachment.fileType, attachment.fileName)) {
         return <ImageAttachment attachment={attachment} isOwn={isOwn} onOpen={() => onOpen(attachment)} />;
     }
-    if (isVideo(attachment.fileType)) {
+    if (isVideo(attachment.fileType, attachment.fileName)) {
         return <VideoPreview attachment={attachment} isOwn={isOwn} onOpen={() => onOpen(attachment)} />;
     }
     return <DocCard attachment={attachment} isOwn={isOwn} onOpen={() => onOpen(attachment)} />;
@@ -727,7 +716,7 @@ export function MessageBubble({ message, showSenderName, onReply, onEdit, onDele
     const hasOnlyMedia =
         !!firstAtt &&
         !hasText &&
-        (isImage(firstAtt.fileType) || (isVideo(firstAtt.fileType) && !!firstAtt.thumbnail));
+        (isImage(firstAtt.fileType, firstAtt.fileName) || (isVideo(firstAtt.fileType, firstAtt.fileName) && !!firstAtt.thumbnail));
 
     const ownBg = "var(--color-chat-outgoing)";
     const otherBg = "var(--color-chat-incoming)";

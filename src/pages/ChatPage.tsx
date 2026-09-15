@@ -6,8 +6,7 @@ import { useMessageActionStore } from "@/store/messageActionStore";
 import { wsService } from "@/services/wsService";
 import { MessageBubble, DateSeparator, formatDateSeparator } from "@/components/MessageBubble";
 import { MessageInput } from "@/components/MessageInput";
-import { GroupDetailsPanel } from "@/components/GroupDetailsPanel";
-import { UserProfilePanel } from "@/components/UserProfilePanel";
+import { ConversationInfoPanel } from "@/components/ConversationInfoPanel";
 import { FilePreviewModal } from "@/components/FilePreviewModal";
 import { Icon } from "@/components/Icon";
 import type { MessageDto, AttachmentDto } from "@/services/chatService";
@@ -63,7 +62,7 @@ export function ChatPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [scrolledToBottom, setScrolledToBottom] = useState(true);
-  const [showPanel, setShowPanel] = useState<"group" | "user" | null>(null);
+  const [showInfo, setShowInfo] = useState(false);
   const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
   const [previewAttachment, setPreviewAttachment] = useState<AttachmentDto | null>(null);
   const isInitialLoad = useRef(true);
@@ -256,15 +255,12 @@ export function ChatPage() {
     offline: "Hors ligne",
   };
 
-  const handleHeaderClick = () => {
-    if (isGroup) setShowPanel((v) => v === "group" ? null : "group");
-    else if (otherParticipants[0]) setShowPanel((v) => v === "user" ? null : "user");
-  };
+  const handleHeaderClick = () => setShowInfo((v) => !v);
 
   return (
-      <div className="flex h-full" style={{ backgroundColor: "var(--color-surface)" }}>
+      <div className="flex h-full min-h-0 overflow-hidden" style={{ backgroundColor: "var(--color-surface)" }}>
         {/* ── Main chat column ─────────────────────────────────────── */}
-        <div className="flex flex-col flex-1 min-w-0 h-full">
+        <div className="flex flex-col flex-1 min-w-0 h-full relative">
 
           {/* ── Header ─────────────────────────────────────────────── */}
           <div
@@ -341,8 +337,8 @@ export function ChatPage() {
               <button
                   onClick={handleHeaderClick}
                   className="icon-btn"
-                  style={{ color: showPanel ? "var(--color-primary-500)" : undefined }}
-                  title={isGroup ? "Infos groupe" : "Profil"}
+                  style={{ color: showInfo ? "var(--color-primary-500)" : undefined }}
+                  title={isGroup ? "Infos du groupe" : "Infos de la conversation"}
               >
                 <Icon name="info" size={18} />
               </button>
@@ -505,18 +501,10 @@ export function ChatPage() {
         </div>{/* end main chat column */}
 
         {/* ── Side panels ─────────────────────────────────────────── */}
-        {showPanel === "group" && (
-            <GroupDetailsPanel
+        {showInfo && (
+            <ConversationInfoPanel
                 conversation={conversation}
-                onClose={() => setShowPanel(null)}
-            />
-        )}
-        {showPanel === "user" && otherParticipants[0] && (
-            <UserProfilePanel
-                participant={otherParticipants[0]}
-                conversationId={convId}
-                onClose={() => setShowPanel(null)}
-                onSendMessage={() => setShowPanel(null)}
+                onClose={() => setShowInfo(false)}
             />
         )}
 

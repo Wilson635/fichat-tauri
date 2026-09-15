@@ -4,14 +4,9 @@ import data from "@emoji-mart/data";
 import Picker from "@emoji-mart/react";
 import { useThemeStore } from "@/store/themeStore";
 import type { MessageDto } from "@/services/chatService";
-import { formatFileSize, isImage, isVideo, isAudio, generateThumbnail } from "@/utils/fileUtils";
+import { generateThumbnail, readTextSnippet } from "@/utils/fileUtils";
 import { Icon, type IconName } from "@/components/Icon";
-
-interface PendingFile {
-    file: File;
-    thumbnail: string | null;
-    dataUrl: string;
-}
+import { SendFileOverlay, type PendingShare } from "@/components/SendFileOverlay";
 
 interface Props {
     onSend: (content: string, replyToId?: number) => void;
@@ -22,18 +17,7 @@ interface Props {
     disabled?: boolean;
 }
 
-function getExtension(f: string) { return f.split(".").pop()?.toLowerCase() ?? ""; }
-
-function getDocAccent(ext: string): { bg: string; fg: string; label: string } {
-    if (["doc", "docx"].includes(ext)) return { bg: "#2368c4", fg: "#fff", label: "WORD" };
-    if (["xls", "xlsx", "csv"].includes(ext)) return { bg: "#107c41", fg: "#fff", label: "XLS" };
-    if (["ppt", "pptx"].includes(ext)) return { bg: "#d35230", fg: "#fff", label: "PPT" };
-    if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) return { bg: "#78716c", fg: "#fff", label: "ZIP" };
-    if (ext === "pdf") return { bg: "#ef4444", fg: "#fff", label: "PDF" };
-    return { bg: "#64748b", fg: "#fff", label: ext.toUpperCase() || "DOC" };
-}
-
-// ─── Attachment type menu (WhatsApp style) ────────────────────────────────────
+// ─── Attachment type menu ─────────────────────────────────────────────────────
 interface AttachmentMenuItem {
     icon: IconName;
     label: string;
@@ -202,118 +186,12 @@ function EmojiPanel({
     );
 }
 
-// ─── File preview before sending (WhatsApp style) ─────────────────────────────
-function PendingFilePreview({ pendingFile, onRemove }: { pendingFile: PendingFile; onRemove: () => void }) {
-    const { file, thumbnail } = pendingFile;
-    const ext = getExtension(file.name);
-    const accent = getDocAccent(ext);
-    const mime = file.type;
-
-    const RemoveBtn = () => (
-        <button
-            type="button"
-            onClick={onRemove}
-            className="absolute top-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center z-10"
-            style={{ backgroundColor: "rgba(15,23,42,0.72)", color: "#fff" }}
-            title="Retirer"
-        >
-            <Icon name="x" size={14} />
-        </button>
-    );
-
-    // ── Image ──
-    if (isImage(mime) && thumbnail) {
-        return (
-            <div className="relative mb-0 rounded-2xl overflow-hidden border" style={{ borderColor: "var(--color-border)", display: "inline-block", maxWidth: 260 }}>
-                <RemoveBtn />
-                <img src={thumbnail} alt={file.name} className="block object-cover" style={{ maxHeight: 200, minHeight: 80 }} />
-                <div className="px-3 py-1.5 flex items-center gap-2" style={{ backgroundColor: "var(--color-surface-secondary)" }}>
-                    <span className="text-xs truncate flex-1 font-medium" style={{ color: "var(--color-text-muted)" }}>{file.name}</span>
-                    <span className="text-xs shrink-0" style={{ color: "var(--color-text-muted)" }}>{formatFileSize(file.size)}</span>
-                </div>
-            </div>
-        );
-    }
-
-    // ── Video ──
-    if (isVideo(mime)) {
-        return (
-            <div className="relative mb-2 rounded-2xl overflow-hidden border shadow-sm" style={{ borderColor: "var(--color-border)", display: "inline-block", minWidth: 220 }}>
-                <RemoveBtn />
-                {thumbnail ? (
-                    <>
-                        <img src={thumbnail} alt="" className="block object-cover" style={{ maxHeight: 160, minWidth: 220 }} />
-                        <div className="absolute inset-0 flex items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.3)" }}>
-                            <div className="w-12 h-12 rounded-full flex items-center justify-center shadow-lg" style={{ backgroundColor: "rgba(0,0,0,0.6)" }}>
-                                <svg className="w-6 h-6 text-white ml-1" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                            </div>
-                        </div>
-                    </>
-                ) : (
-                    <div className="flex items-center gap-3 px-4 py-3" style={{ backgroundColor: "var(--color-surface-secondary)", minWidth: 220 }}>
-                        <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: "#8b5cf6", color: "#fff" }}>
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" />
-                            </svg>
-                        </div>
-                        <div>
-                            <p className="text-sm font-medium truncate" style={{ color: "var(--color-text-primary)", maxWidth: 160 }}>{file.name}</p>
-                            <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>{formatFileSize(file.size)}</p>
-                        </div>
-                    </div>
-                )}
-                <div className="px-3 py-1.5" style={{ backgroundColor: "var(--color-surface-secondary)" }}>
-                    <p className="text-xs truncate" style={{ color: "var(--color-text-muted)" }}>{file.name} · {formatFileSize(file.size)}</p>
-                </div>
-            </div>
-        );
-    }
-
-    // ── Audio ──
-    if (isAudio(mime)) {
-        return (
-            <div className="relative flex items-center gap-3 mb-2 px-4 py-3 rounded-2xl border shadow-sm" style={{ backgroundColor: "var(--color-surface-secondary)", borderColor: "var(--color-border)", minWidth: 240 }}>
-                <RemoveBtn />
-                <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: "var(--color-primary-500)" }}>
-                    <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" /></svg>
-                </div>
-                <div className="flex items-center gap-px flex-1" style={{ height: 28 }}>
-                    {Array.from({ length: 22 }).map((_, i) => {
-                        const seed = (file.name.charCodeAt(i % file.name.length) + i * 7) % 10;
-                        return (
-                            <div key={i} className="flex-1 rounded-full" style={{ height: `${25 + seed * 7}%`, backgroundColor: "var(--color-primary-500)", opacity: 0.5 }} />
-                        );
-                    })}
-                </div>
-                <div className="min-w-0 shrink-0 ml-1">
-                    <p className="text-xs font-medium" style={{ color: "var(--color-text-primary)", maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</p>
-                    <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>{formatFileSize(file.size)}</p>
-                </div>
-            </div>
-        );
-    }
-
-    // ── Document (PDF, Office, etc.) ──
-    return (
-        <div className="relative flex items-center gap-3 mb-2 px-3 py-2.5 rounded-xl border" style={{ backgroundColor: "var(--color-surface)", borderColor: "var(--color-border)", maxWidth: 300 }}>
-            <RemoveBtn />
-            <div className="w-9 h-11 rounded-md flex items-center justify-center shrink-0 font-bold text-white text-[9px] tracking-wide" style={{ backgroundColor: accent.bg }}>
-                {accent.label.slice(0, 4)}
-            </div>
-            <div className="flex-1 min-w-0 pr-6">
-                <p className="text-[13px] font-medium truncate" style={{ color: "var(--color-text-primary)" }}>{file.name}</p>
-                <p className="text-[11px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>{accent.label} · {formatFileSize(file.size)}</p>
-            </div>
-        </div>
-    );
-}
-
 // ─── MessageInput ─────────────────────────────────────────────────────────────
 export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelReply, disabled }: Props) {
     const [text, setText] = useState("");
     const [showEmoji, setShowEmoji] = useState(false);
     const [showAttachMenu, setShowAttachMenu] = useState(false);
-    const [pendingFile, setPendingFile] = useState<PendingFile | null>(null);
+    const [pendingFile, setPendingFile] = useState<PendingShare | null>(null);
     const [fileLoading, setFileLoading] = useState(false);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -339,10 +217,18 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
 
     const canSend = !disabled && (text.trim().length > 0 || pendingFile !== null);
 
+    const clearPending = useCallback(() => {
+        setPendingFile((prev) => {
+            if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+            return null;
+        });
+    }, []);
+
     const send = useCallback(() => {
         if (!canSend) return;
         if (pendingFile) {
             onSendFile?.(pendingFile.file, pendingFile.thumbnail, pendingFile.dataUrl, text.trim(), replyTo?.id);
+            if (pendingFile.previewUrl) URL.revokeObjectURL(pendingFile.previewUrl);
             setPendingFile(null);
             setText("");
             onCancelReply();
@@ -512,11 +398,16 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
         setFileLoading(true);
         try {
             const { fileToDataUrl } = await import("@/utils/fileUtils");
-            const [thumb, dataUrl] = await Promise.all([
+            const previewUrl = URL.createObjectURL(file);
+            const [thumb, dataUrl, snippet] = await Promise.all([
                 generateThumbnail(file, 600),
                 fileToDataUrl(file),
+                readTextSnippet(file),
             ]);
-            setPendingFile({ file, thumbnail: thumb, dataUrl });
+            setPendingFile((prev) => {
+                if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+                return { file, thumbnail: thumb, dataUrl, previewUrl, textSnippet: snippet };
+            });
         } catch (err) {
             console.error("Erreur lecture fichier:", err);
         } finally {
@@ -546,9 +437,16 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
                 )}
 
                 {pendingFile && (
-                    <div className="composer-attach">
-                        <PendingFilePreview pendingFile={pendingFile} onRemove={() => { setPendingFile(null); inputRef.current?.focus(); }} />
-                    </div>
+                    <SendFileOverlay
+                        pending={pendingFile}
+                        caption={text}
+                        onCaption={setText}
+                        onSend={send}
+                        onCancel={() => {
+                            clearPending();
+                            inputRef.current?.focus();
+                        }}
+                    />
                 )}
 
                 {recordError && (

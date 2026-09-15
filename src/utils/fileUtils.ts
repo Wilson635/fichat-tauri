@@ -27,24 +27,17 @@ export function getFileColor(mimeType: string | null): string {
  * Returns a JSX-ready SVG icon string for the given MIME type.
  * Use with dangerouslySetInnerHTML or render via getFileIconElement().
  */
-export function getFileIcon(mimeType: string | null | undefined): string {
-  if (!mimeType) return iconGeneric;
-
-  if (mimeType.startsWith("image/"))       return iconImage;
-  if (mimeType === "application/pdf")       return iconPdf;
-  if (mimeType.startsWith("video/"))        return iconVideo;
-  if (mimeType.startsWith("audio/"))        return iconAudio;
-  if (mimeType.includes("zip") || mimeType.includes("rar") || mimeType.includes("archive") || mimeType.includes("compressed"))
-    return iconArchive;
-  // Excel MIME is officedocument.spreadsheetml.sheet — never match generic "document" first.
-  if (mimeType.includes("excel") || mimeType.includes("spreadsheet") || mimeType.includes("sheet"))
-    return iconExcel;
-  if (mimeType.includes("wordprocessing") || mimeType.includes("msword") || mimeType.includes("word"))
-    return iconWord;
-  if (mimeType.includes("powerpoint") || mimeType.includes("presentation"))
-    return iconPowerpoint;
-  if (mimeType.startsWith("text/"))          return iconText;
-
+export function getFileIcon(mimeType: string | null | undefined, fileName?: string | null): string {
+  const kind = fileKind(fileName ?? "", mimeType);
+  if (kind === "image") return iconImage;
+  if (kind === "pdf") return iconPdf;
+  if (kind === "video") return iconVideo;
+  if (kind === "audio") return iconAudio;
+  if (kind === "archive") return iconArchive;
+  if (kind === "spreadsheet") return iconExcel;
+  if (kind === "word") return iconWord;
+  if (kind === "slides") return iconPowerpoint;
+  if (kind === "text") return iconText;
   return iconGeneric;
 }
 
@@ -200,32 +193,126 @@ export function getFileExt(fileName: string | null | undefined, mimeType?: strin
   return "?";
 }
 
-/** Whether a mime type is an image we can display inline */
-export function isImage(mimeType: string | null): boolean {
-  return !!mimeType && mimeType.startsWith("image/");
+export type FileKind =
+  | "image"
+  | "video"
+  | "audio"
+  | "pdf"
+  | "text"
+  | "spreadsheet"
+  | "word"
+  | "slides"
+  | "archive"
+  | "file";
+
+/** Classify a file from MIME + name (Excel/sheet before Word). */
+export function fileKind(fileName: string | null | undefined, mimeType?: string | null): FileKind {
+  const name = (fileName ?? "").toLowerCase();
+  const mime = (mimeType ?? "").toLowerCase();
+  const vocal = /^message-vocal/i.test(fileName ?? "") || /(^|[-_])voice([-_.]|$)/i.test(name);
+
+  if (mime.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg|heic|avif)$/.test(name)) return "image";
+  if (mime.startsWith("audio/") || /\.(mp3|wav|ogg|oga|m4a|opus|weba)$/.test(name) || vocal) return "audio";
+  if (mime.startsWith("video/") || /\.(mp4|mov|avi|mkv|webm|m4v)$/.test(name)) return "video";
+  if (mime === "application/pdf" || name.endsWith(".pdf")) return "pdf";
+  if (
+    mime.includes("excel") ||
+    mime.includes("spreadsheet") ||
+    mime.includes("sheet") ||
+    /\.(xlsx?|xlsm|xlsb|csv)$/.test(name)
+  ) {
+    return "spreadsheet";
+  }
+  if (mime.includes("wordprocessing") || mime.includes("msword") || /\.(docx?|rtf|odt)$/.test(name)) return "word";
+  if (mime.includes("powerpoint") || mime.includes("presentation") || /\.(pptx?|odp)$/.test(name)) return "slides";
+  if (
+    mime.includes("zip") ||
+    mime.includes("rar") ||
+    mime.includes("archive") ||
+    mime.includes("compressed") ||
+    /\.(zip|rar|7z|tar|gz)$/.test(name)
+  ) {
+    return "archive";
+  }
+  if (mime.startsWith("text/") || mime.includes("json") || /\.(txt|md|json|xml|log|ini|yml|yaml)$/.test(name)) {
+    return "text";
+  }
+  return "file";
 }
 
-/** Whether a mime type is a video */
-export function isVideo(mimeType: string | null): boolean {
-  return !!mimeType && mimeType.startsWith("video/");
+export function fileKindLabel(kind: FileKind): string {
+  switch (kind) {
+    case "image":
+      return "Image";
+    case "video":
+      return "Vidéo";
+    case "audio":
+      return "Audio";
+    case "pdf":
+      return "PDF";
+    case "text":
+      return "Texte";
+    case "spreadsheet":
+      return "Tableur";
+    case "word":
+      return "Document";
+    case "slides":
+      return "Présentation";
+    case "archive":
+      return "Archive";
+    default:
+      return "Fichier";
+  }
 }
 
-/** Whether a mime type is audio */
-export function isAudio(mimeType: string | null): boolean {
-  return !!mimeType && mimeType.startsWith("audio/");
+export function docAccent(fileName: string, mimeType?: string | null): { bg: string; fg: string; label: string } {
+  const kind = fileKind(fileName, mimeType);
+  const ext = (fileName.split(".").pop() ?? "").toUpperCase().slice(0, 4);
+  if (kind === "word") return { bg: "#2368c4", fg: "#fff", label: ext || "DOC" };
+  if (kind === "spreadsheet") return { bg: "#107c41", fg: "#fff", label: ext || "XLS" };
+  if (kind === "slides") return { bg: "#d35230", fg: "#fff", label: ext || "PPT" };
+  if (kind === "archive") return { bg: "#78716c", fg: "#fff", label: ext || "ZIP" };
+  if (kind === "pdf") return { bg: "#ef4444", fg: "#fff", label: "PDF" };
+  if (kind === "text") return { bg: "#0891b2", fg: "#fff", label: ext || "TXT" };
+  if (kind === "video") return { bg: "#6d28d9", fg: "#fff", label: ext || "VID" };
+  if (kind === "audio") return { bg: "#0f766e", fg: "#fff", label: ext || "AUD" };
+  return { bg: "#64748b", fg: "#fff", label: ext || "DOC" };
 }
 
-/** Whether a mime type is a PDF */
-export function isPdf(mimeType: string | null): boolean {
-  return mimeType === "application/pdf";
+export function isImage(mimeType: string | null, fileName?: string | null): boolean {
+  return fileKind(fileName ?? "", mimeType) === "image";
 }
 
-/**
- * Generate an image thumbnail (data URL) using Canvas.
- * Returns null if the file is not an image.
- */
-export async function generateThumbnail(file: File, maxPx = 600): Promise<string | null> {
-  if (!file.type.startsWith("image/")) return null;
+export function isVideo(mimeType: string | null, fileName?: string | null): boolean {
+  return fileKind(fileName ?? "", mimeType) === "video";
+}
+
+export function isAudio(mimeType: string | null, fileName?: string | null): boolean {
+  return fileKind(fileName ?? "", mimeType) === "audio";
+}
+
+export function isPdf(mimeType: string | null, fileName?: string | null): boolean {
+  return fileKind(fileName ?? "", mimeType) === "pdf";
+}
+
+export function isTextLike(fileName: string, mimeType?: string | null): boolean {
+  const kind = fileKind(fileName, mimeType);
+  if (kind === "text") return true;
+  return fileName.toLowerCase().endsWith(".csv");
+}
+
+export async function readTextSnippet(file: File, maxChars = 900): Promise<string | null> {
+  if (!isTextLike(file.name, file.type)) return null;
+  try {
+    const slice = file.size > 32 * 1024 ? file.slice(0, 8 * 1024) : file;
+    const text = await slice.text();
+    return text.slice(0, maxChars);
+  } catch {
+    return null;
+  }
+}
+
+async function generateImageThumbnail(file: File, maxPx: number): Promise<string | null> {
   return new Promise<string | null>((resolve) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
@@ -244,6 +331,60 @@ export async function generateThumbnail(file: File, maxPx = 600): Promise<string
     };
     img.src = url;
   });
+}
+
+export async function generateVideoThumbnail(file: File, maxPx = 600): Promise<string | null> {
+  return new Promise<string | null>((resolve) => {
+    const video = document.createElement("video");
+    const url = URL.createObjectURL(file);
+    let done = false;
+    const finish = (value: string | null) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      URL.revokeObjectURL(url);
+      video.src = "";
+      resolve(value);
+    };
+    const timer = window.setTimeout(() => finish(null), 4500);
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+    video.onloadeddata = () => {
+      try {
+        const dur = Number.isFinite(video.duration) ? video.duration : 1;
+        video.currentTime = Math.min(0.8, Math.max(0.05, dur * 0.08));
+      } catch {
+        finish(null);
+      }
+    };
+    video.onseeked = () => {
+      try {
+        const w = video.videoWidth || 320;
+        const h = video.videoHeight || 180;
+        const ratio = Math.min(maxPx / w, maxPx / h, 1);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(w * ratio);
+        canvas.height = Math.round(h * ratio);
+        canvas.getContext("2d")!.drawImage(video, 0, 0, canvas.width, canvas.height);
+        finish(canvas.toDataURL("image/jpeg", 0.8));
+      } catch {
+        finish(null);
+      }
+    };
+    video.onerror = () => finish(null);
+    video.src = url;
+  });
+}
+
+/**
+ * Image or video thumbnail as a JPEG data URL. Other types return null.
+ */
+export async function generateThumbnail(file: File, maxPx = 600): Promise<string | null> {
+  const kind = fileKind(file.name, file.type);
+  if (kind === "image") return generateImageThumbnail(file, maxPx);
+  if (kind === "video") return generateVideoThumbnail(file, maxPx);
+  return null;
 }
 
 /**

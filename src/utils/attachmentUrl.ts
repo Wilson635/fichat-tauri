@@ -36,6 +36,13 @@ function guessMime(att: AttachmentDto): string {
   if (name.endsWith(".wav")) return "audio/wav";
   if (name.endsWith(".m4a") || name.endsWith(".mp4")) return name.includes("voice") || name.startsWith("message-vocal") ? "audio/mp4" : "video/mp4";
   if (name.endsWith(".pdf")) return "application/pdf";
+  if (name.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  if (name.endsWith(".xls")) return "application/vnd.ms-excel";
+  if (name.endsWith(".csv")) return "text/csv";
+  if (name.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (name.endsWith(".doc")) return "application/msword";
+  if (name.endsWith(".pptx")) return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  if (name.endsWith(".txt") || name.endsWith(".md") || name.endsWith(".log")) return "text/plain";
   if (name.endsWith(".png")) return "image/png";
   if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
   if (name.endsWith(".gif")) return "image/gif";

@@ -1224,3 +1224,272 @@ body.sidebar-resizing * {
   --rgb-color: 241, 245, 249;
   --color-border: rgba(255, 255, 255, 0.08);
 }
+
+/* ─── Send file overlay (WhatsApp-style preview) ─────────────────────────── */
+.fichat-send-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(8px);
+}
+.fichat-send-card {
+  width: min(720px, 100%);
+  height: min(640px, 100%);
+  display: flex;
+  flex-direction: column;
+  border-radius: 20px;
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 28px 64px -20px rgba(15, 23, 42, 0.45);
+  font-family: "Poppins", "Segoe UI", sans-serif;
+}
+.fichat-send-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-header-bg);
+}
+.fichat-send-head h2 {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-text-primary);
+  line-height: 1.2;
+}
+.fichat-send-head p {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: 1px;
+}
+.fichat-send-chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--color-active);
+  color: var(--color-primary-700);
+  flex-shrink: 0;
+}
+.fichat-send-body {
+  flex: 1;
+  min-height: 0;
+  background: var(--color-surface-secondary);
+}
+.fichat-send-foot {
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-header-bg);
+}
+.fichat-send-compose {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+.fichat-send-caption {
+  flex: 1;
+  min-height: 40px;
+  max-height: 88px;
+  resize: none;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--color-input-bg);
+  color: var(--color-text-primary);
+  font-size: 13.5px;
+  outline: none;
+  font-family: inherit;
+}
+.fichat-send-caption:focus {
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px var(--color-active);
+}
+
+/* ─── Document previews ──────────────────────────────────────────────────── */
+.doc-preview-surface {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-surface-secondary);
+}
+.doc-preview-surface.is-overlay {
+  height: 100%;
+}
+.doc-preview-surface.is-bubble {
+  height: 148px;
+}
+.doc-preview-surface.is-tile {
+  height: 100%;
+}
+.doc-preview-surface img,
+.doc-preview-surface video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.doc-preview-surface.is-overlay img,
+.doc-preview-surface.is-overlay video {
+  object-fit: contain;
+  background: #0b1220;
+}
+.doc-pdf-frame {
+  width: 140%;
+  height: 140%;
+  border: 0;
+  transform: scale(0.72);
+  transform-origin: top left;
+  pointer-events: none;
+  background: #fff;
+}
+.doc-preview-surface.is-overlay .doc-pdf-frame {
+  width: 100%;
+  height: 100%;
+  transform: none;
+  pointer-events: auto;
+}
+.doc-play-badge {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: rgba(15, 23, 42, 0.28);
+}
+.doc-play-badge svg {
+  width: 40px;
+  height: 40px;
+  padding: 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+}
+.doc-preview-fallback,
+.doc-audio-hero {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.doc-text-pane {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  padding: 12px 14px;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text-secondary);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+.doc-text-pane.is-overlay {
+  font-size: 12.5px;
+  overflow: auto;
+}
+.doc-sheet {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+}
+.doc-sheet-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.doc-sheet-brand {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.doc-sheet-brand svg {
+  width: 22px;
+  height: 22px;
+}
+.doc-sheet-page {
+  flex: 1;
+  margin: 10px 12px 12px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  padding: 12px 14px;
+}
+.dark .doc-sheet-page {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.doc-sheet-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.doc-sheet-lines span {
+  display: block;
+  height: 7px;
+  border-radius: 4px;
+}
+.doc-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.doc-glyph {
+  width: 34px;
+  height: 42px;
+  border-radius: 6px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 6px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+.doc-bubble-preview {
+  height: 148px;
+  overflow: hidden;
+}
+
+/* ─── Conversation info panel ────────────────────────────────────────────── */
+.fichat-info-panel {
+  position: relative;
+  flex-shrink: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 300px;
+  max-width: 560px;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  font-family: "Poppins", "Segoe UI", sans-serif;
+}
+.fichat-info-resize {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  z-index: 12;
+  cursor: ew-resize;
+}

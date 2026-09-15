@@ -19,10 +19,10 @@ export function FilePreviewModal({ attachment, senderName, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const objectUrlRef = useRef<string | null>(null);
 
-  const isImg = isImage(attachment.fileType);
-  const isVid = isVideo(attachment.fileType);
-  const isAud = isAudio(attachment.fileType);
-  const isPDF = isPdf(attachment.fileType);
+  const isImg = isImage(attachment.fileType, attachment.fileName);
+  const isVid = isVideo(attachment.fileType, attachment.fileName);
+  const isAud = isAudio(attachment.fileType, attachment.fileName);
+  const isPDF = isPdf(attachment.fileType, attachment.fileName);
 
   const defaultW = isImg || isVid || isPDF ? 820 : 480;
   const defaultH = isImg || isVid || isPDF ? 600 : 320;
