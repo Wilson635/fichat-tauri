@@ -1,0 +1,235 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Palette WhatsApp – Accent vert (par défaut) ─── */
+:root {
+  --accent-green:   #00a884;
+  --accent-blue:    #0078d4;
+  --accent-purple:  #7c3aed;
+  --accent-orange:  #ea580c;
+  --accent-red:     #dc2626;
+
+  /* Couleur primaire active (changeable par l'utilisateur) */
+  --color-primary-50:  #e6f7f4;
+  --color-primary-100: #b3e8df;
+  --color-primary-200: #80d9ca;
+  --color-primary-300: #4dcab5;
+  --color-primary-400: #26bda6;
+  --color-primary-500: #00a884;
+  --color-primary-600: #009878;
+  --color-primary-700: #008469;
+  --color-primary-800: #00715a;
+  --color-primary-900: #004d3e;
+}
+
+/* ─── Light mode ─── */
+:root, .light {
+  --color-surface:           #ffffff;
+  --color-surface-secondary: #f0f2f5;
+  --color-surface-tertiary:  #e9edef;
+
+  --color-chat-bg:       #efeae2;
+  --color-chat-bg-alt:   #ffffff;
+  --color-chat-bg-dark-alt: #1a1a2e;
+  --color-chat-outgoing: #d9fdd3;
+  --color-chat-incoming: #ffffff;
+
+  --color-border:        #e9edef;
+  --color-border-strong: #c4c4c4;
+
+  --color-text-primary:   #111b21;
+  --color-text-secondary: #3b4a54;
+  --color-text-muted:     #667781;
+  --color-text-inverse:   #ffffff;
+
+  --color-sidebar-bg:    #ffffff;
+  --color-header-bg:     #f0f2f5;
+  --color-input-bg:      #f0f2f5;
+  --color-hover:         rgba(0,0,0,0.05);
+  --color-active:        rgba(0,168,132,0.1);
+  --color-unread-badge:  #00a884;
+
+  --color-scrollbar:     rgba(0,0,0,0.15);
+}
+
+/* ─── Dark mode ─── */
+.dark {
+  --color-surface:           #111b21;
+  --color-surface-secondary: #202c33;
+  --color-surface-tertiary:  #2a3942;
+
+  --color-chat-bg:       #0b141a;
+  --color-chat-bg-alt:   #1e1e2e;
+  --color-chat-bg-dark-alt: #050a0e;
+  --color-chat-outgoing: #005c4b;
+  --color-chat-incoming: #202c33;
+
+  --color-border:        #2a3942;
+  --color-border-strong: #3b4a54;
+
+  --color-text-primary:   #e9edef;
+  --color-text-secondary: #aebac1;
+  --color-text-muted:     #667781;
+  --color-text-inverse:   #111b21;
+
+  --color-sidebar-bg:    #111b21;
+  --color-header-bg:     #202c33;
+  --color-input-bg:      #2a3942;
+  --color-hover:         rgba(255,255,255,0.05);
+  --color-active:        rgba(0,168,132,0.15);
+  --color-unread-badge:  #00a884;
+
+  --color-scrollbar:     rgba(255,255,255,0.15);
+}
+
+/* ─── Base ─── */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--color-text-primary);
+  background-color: var(--color-surface);
+  -webkit-font-smoothing: antialiased;
+  /* Smooth theme transitions on all colour properties */
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* ─── Scrollbar custom ─── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-scrollbar);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-strong);
+}
+
+/* ─── Utility classes ─── */
+.sidebar-bg   { background-color: var(--color-sidebar-bg); }
+.header-bg    { background-color: var(--color-header-bg); }
+.surface-bg   { background-color: var(--color-surface); }
+.surface-2-bg { background-color: var(--color-surface-secondary); }
+.input-bg     { background-color: var(--color-input-bg); }
+.chat-bg      { background-color: var(--color-chat-bg); }
+
+.text-primary   { color: var(--color-text-primary); }
+.text-secondary { color: var(--color-text-secondary); }
+.text-muted     { color: var(--color-text-muted); }
+
+.border-theme  { border-color: var(--color-border); }
+
+.hover-bg { transition: background-color 0.15s; }
+.hover-bg:hover { background-color: var(--color-hover); }
+
+.active-bg { background-color: var(--color-active) !important; }
+
+/* ─── Font size variants ─── */
+[data-font-size="small"]  { font-size: 13px; }
+[data-font-size="medium"] { font-size: 15px; }
+[data-font-size="large"]  { font-size: 17px; }
+
+/* ─── Chat bubble colours ─── */
+.bubble-outgoing { background-color: var(--color-chat-outgoing); }
+.bubble-incoming { background-color: var(--color-chat-incoming); }
+
+/* ─── Chat background variants ─────────────────────────────────────────── */
+/* Applied by ThemeProvider based on themeStore.chatBackground value         */
+
+/* NOTE: selectors use NO SPACE between .dark and [data-chat-bg] because both
+   classes target the SAME element (document.documentElement). A space would
+   mean "descendant", which would never match. */
+
+[data-chat-bg="default"]      { --color-chat-bg: #efeae2; }
+.dark[data-chat-bg="default"] { --color-chat-bg: #0b141a; }
+
+[data-chat-bg="white"]      { --color-chat-bg: #ffffff; }
+.dark[data-chat-bg="white"] { --color-chat-bg: #1e1e2e; }
+
+[data-chat-bg="dark"]      { --color-chat-bg: #2a2a3a; }
+.dark[data-chat-bg="dark"] { --color-chat-bg: #050a0e; }
+
+/* Dot pattern: subtle repeating dots */
+[data-chat-bg="pattern-dots"] {
+  --color-chat-bg: #efeae2;
+  --chat-bg-image: radial-gradient(circle, rgba(0,0,0,0.08) 1px, transparent 1px);
+  --chat-bg-size: 20px 20px;
+}
+.dark[data-chat-bg="pattern-dots"] {
+  --color-chat-bg: #0b141a;
+  --chat-bg-image: radial-gradient(circle, rgba(255,255,255,0.06) 1px, transparent 1px);
+  --chat-bg-size: 20px 20px;
+}
+
+/* Bubble pattern: WhatsApp-style tiled SVG */
+[data-chat-bg="pattern-bubble"] {
+  --color-chat-bg: #e5ddd5;
+  --chat-bg-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Ccircle cx='15' cy='15' r='6' fill='none' stroke='rgba(0,0,0,0.06)' stroke-width='1.5'/%3E%3Ccircle cx='45' cy='35' r='4' fill='none' stroke='rgba(0,0,0,0.05)' stroke-width='1.5'/%3E%3Crect x='8' y='32' width='14' height='8' rx='4' fill='none' stroke='rgba(0,0,0,0.05)' stroke-width='1.5'/%3E%3Crect x='38' y='10' width='14' height='8' rx='4' fill='none' stroke='rgba(0,0,0,0.04)' stroke-width='1.5'/%3E%3C/svg%3E");
+  --chat-bg-size: 60px 60px;
+}
+.dark[data-chat-bg="pattern-bubble"] {
+  --color-chat-bg: #0b141a;
+  --chat-bg-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Ccircle cx='15' cy='15' r='6' fill='none' stroke='rgba(255,255,255,0.05)' stroke-width='1.5'/%3E%3Ccircle cx='45' cy='35' r='4' fill='none' stroke='rgba(255,255,255,0.04)' stroke-width='1.5'/%3E%3Crect x='8' y='32' width='14' height='8' rx='4' fill='none' stroke='rgba(255,255,255,0.04)' stroke-width='1.5'/%3E%3Crect x='38' y='10' width='14' height='8' rx='4' fill='none' stroke='rgba(255,255,255,0.03)' stroke-width='1.5'/%3E%3C/svg%3E");
+  --chat-bg-size: 60px 60px;
+}
+
+/* Apply the background image/size to elements using the chat-bg class */
+.chat-bg {
+  background-color: var(--color-chat-bg);
+  background-image: var(--chat-bg-image, none);
+  background-size: var(--chat-bg-size, auto);
+}
+
+/* ─── Transition globale thème ─── */
+.theme-transition,
+.theme-transition * {
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    fill 0.2s ease,
+    stroke 0.2s ease !important;
+}
+
+/* ─── Animations ─── */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out both;
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.animate-slide-in-right {
+  animation: slide-in-right 0.2s ease-out both;
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.animate-scale-in {
+  animation: scale-in 0.15s ease-out both;
+}
