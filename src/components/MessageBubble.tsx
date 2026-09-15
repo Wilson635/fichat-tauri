@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { format, isToday, isYesterday } from "date-fns";
 import { fr } from "date-fns/locale";
 import type { MessageDto, AttachmentDto } from "@/services/chatService";
@@ -44,6 +44,17 @@ function parseVoiceDuration(fileName: string): number | null {
     const m = fileName.match(/message-vocal-(\d+)s[-_.]/i);
     if (!m) return null;
     return finiteSeconds(Number(m[1]));
+}
+
+function waveHeights(seed: string, count = 32): number[] {
+    let h = 2166136261;
+    for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
+    const out: number[] = [];
+    for (let i = 0; i < count; i++) {
+        h = Math.imul(h ^ (h >>> 13), 1274126177);
+        out.push(22 + (Math.abs(h) % 78));
+    }
+    return out;
 }
 
 function StatusIcon({ status }: { status: MessageDto["status"] }) {
@@ -162,6 +173,7 @@ function DocCard({
 function AudioPlayer({
     attachment,
     isOwn,
+    voice = false,
     playbackKey,
 }: {
     attachment: AttachmentDto;
@@ -175,17 +187,24 @@ function AudioPlayer({
     const [elapsed, setElapsed] = useState(0);
     const [duration, setDuration] = useState<number | null>(encoded);
     const audioRef = useRef<HTMLAudioElement>(null);
+    const waveRef = useRef<HTMLDivElement>(null);
+    const seekingRef = useRef(false);
     const wantPlayRef = useRef(false);
     const startedRef = useRef(false);
     const { url, loading } = useAttachmentUrl(attachment);
+    const bars = useMemo(() => waveHeights(attachment.fileName, voice ? 36 : 28), [attachment.fileName, voice]);
 
     const knownTotal = () => finiteSeconds(audioRef.current?.duration) ?? duration;
 
     const applyKnown = useCallback((raw: number | null | undefined) => {
         const next = finiteSeconds(raw);
         if (next == null) return;
-        setDuration((prev) => (prev == null || Math.abs(prev - next) > 0.4 ? next : prev));
-    }, []);
+        setDuration((prev) => {
+            if (encoded != null && next + 0.6 < encoded) return prev ?? encoded;
+            if (prev == null || Math.abs(prev - next) > 0.4) return next;
+            return prev;
+        });
+    }, [encoded]);
 
     const startPlayback = useCallback(() => {
         wantPlayRef.current = true;
@@ -228,23 +247,26 @@ function AudioPlayer({
         requestAudioPlay(playbackKey);
     };
 
-    const seek = (e: React.MouseEvent<HTMLDivElement>) => {
+    const seekAt = (clientX: number) => {
+        const el = waveRef.current;
         const a = audioRef.current;
         const total = knownTotal();
-        if (!a || total == null || total <= 0) return;
-        const rect = e.currentTarget.getBoundingClientRect();
-        const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+        if (!el || !a || total == null || total <= 0) return;
+        const rect = el.getBoundingClientRect();
+        const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
         a.currentTime = ratio * total;
         setProgress(ratio);
         setElapsed(ratio * total);
     };
 
-    const accent = isOwn ? "var(--color-primary-600)" : "var(--color-primary-500)";
-    const track = isOwn ? "rgba(15, 23, 42, 0.14)" : "var(--color-border)";
-    const displayTime = playing ? elapsed : (duration ?? elapsed);
+    const displayTime = playing || elapsed > 0 ? elapsed : (duration ?? elapsed);
+    const filled = progress <= 0 ? -1 : Math.round(progress * bars.length);
+    const sizeLabel = formatFileSize(attachment.fileSize);
 
     return (
-        <div className="flex items-center gap-2.5 px-3 py-2.5" style={{ minWidth: 220, maxWidth: 280 }}>
+        <div
+            className={`fichat-audio-card ${voice ? "is-voice" : "is-file"}${isOwn ? " is-own" : ""}${playing ? " is-playing" : ""}`}
+        >
             {url && (
                 <audio
                     ref={audioRef}
@@ -301,60 +323,102 @@ function AudioPlayer({
                     }}
                 />
             )}
-            <button
-                type="button"
-                onClick={toggle}
-                disabled={!url || loading}
-                className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 disabled:opacity-50"
-                style={{ backgroundColor: accent, color: "#fff" }}
-                title={playing ? "Pause" : "Lecture"}
-            >
-                {loading ? (
-                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                ) : playing ? (
-                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-                    </svg>
-                ) : (
-                    <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M8 5v14l11-7z" />
-                    </svg>
+            <div className="fichat-audio-play-wrap">
+                <button
+                    type="button"
+                    onClick={toggle}
+                    disabled={!url || loading}
+                    className={`fichat-audio-play${playing ? " is-on" : ""}`}
+                    title={playing ? "Pause" : "Lecture"}
+                    aria-label={playing ? "Pause" : voice ? "Lire le message vocal" : "Lire le fichier audio"}
+                >
+                    {loading ? (
+                        <Icon name="loader" size={16} className="animate-spin" />
+                    ) : playing ? (
+                        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                            <path d="M6 5h4v14H6V5zm8 0h4v14h-4V5z" />
+                        </svg>
+                    ) : (
+                        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                            <path d="M8 5v14l11-7z" />
+                        </svg>
+                    )}
+                </button>
+                {voice && (
+                    <span className="fichat-audio-chip" aria-hidden>
+                        <Icon name="mic" size={13} strokeWidth={2.5} />
+                    </span>
                 )}
-            </button>
-            <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-                <div
-                    className="h-1 rounded-full cursor-pointer relative"
-                    style={{ backgroundColor: track }}
-                    onClick={seek}
+            </div>
+            <div className="fichat-audio-body">
+                {!voice && (
+                    <p className="fichat-audio-name" title={attachment.fileName}>
+                        {attachment.fileName}
+                    </p>
+                )}
+                <div className={voice ? "fichat-audio-voice-row" : "contents"}>
+                    <div
+                    ref={waveRef}
+                    className={`fichat-audio-wave${playing ? " is-playing" : ""}`}
                     role="slider"
+                    aria-label="Position de lecture"
                     aria-valuemin={0}
                     aria-valuemax={100}
                     aria-valuenow={Math.round(progress * 100)}
+                    tabIndex={0}
+                    onPointerDown={(e) => {
+                        seekingRef.current = true;
+                        e.currentTarget.setPointerCapture(e.pointerId);
+                        seekAt(e.clientX);
+                    }}
+                    onPointerMove={(e) => {
+                        if (seekingRef.current) seekAt(e.clientX);
+                    }}
+                    onPointerUp={() => {
+                        seekingRef.current = false;
+                    }}
+                    onPointerCancel={() => {
+                        seekingRef.current = false;
+                    }}
+                    onKeyDown={(e) => {
+                        const a = audioRef.current;
+                        const total = knownTotal();
+                        if (!a || total == null || total <= 0) return;
+                        const step = total * 0.05;
+                        if (e.key === "ArrowRight") {
+                            e.preventDefault();
+                            a.currentTime = Math.min(total, a.currentTime + step);
+                        } else if (e.key === "ArrowLeft") {
+                            e.preventDefault();
+                            a.currentTime = Math.max(0, a.currentTime - step);
+                        }
+                    }}
                 >
-                    <div
-                        className="absolute inset-y-0 left-0 rounded-full"
-                        style={{ width: `${Math.min(100, progress * 100)}%`, backgroundColor: accent }}
-                    />
-                    <div
-                        className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full"
-                        style={{
-                            left: `calc(${Math.min(100, progress * 100)}% - 5px)`,
-                            backgroundColor: accent,
-                            boxShadow: "0 0 0 2px rgba(255,255,255,0.7)",
-                        }}
-                    />
+                    {bars.map((h, i) => (
+                        <span
+                            key={i}
+                            className={i <= filled ? "is-on" : undefined}
+                            style={{ height: `${h}%`, animationDelay: `${(i % 8) * 45}ms` }}
+                        />
+                    ))}
                 </div>
-                <div className="flex items-center justify-between">
-                    <span className="text-[11px] tabular-nums" style={{ color: "var(--color-text-muted)" }}>
-                        {formatClock(displayTime)}
-                    </span>
-                    <span className="text-[11px] tabular-nums" style={{ color: "var(--color-text-muted)" }}>
-                        {duration != null ? formatClock(duration) : "—"}
-                    </span>
+                {voice && (
+                    <span className="fichat-audio-time tabular-nums">{formatClock(displayTime)}</span>
+                )}
                 </div>
+                {!voice && (
+                <div className="fichat-audio-meta">
+                    <span className="tabular-nums">{formatClock(displayTime)}</span>
+                    <span className="dot" aria-hidden />
+                    <span>Audio</span>
+                    {sizeLabel ? (
+                        <>
+                            <span className="dot" aria-hidden />
+                            <span className="tabular-nums">{sizeLabel}</span>
+                        </>
+                    ) : null}
+                </div>
+                )}
             </div>
         </div>
     );
