@@ -5,6 +5,7 @@ import { authService } from "@/services/authService";
 import { isTauri } from "@/services/chatService";
 import { Icon } from "@/components/Icon";
 import { AuthAlert, AuthField, AuthPrimaryButton, AuthShell } from "@/components/AuthShell";
+import { APP_NAME } from "@/brand";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -46,7 +47,7 @@ export function LoginPage() {
 
   return (
     <AuthShell
-      headline="Bienvenue sur FiChat"
+      headline={`Bienvenue sur ${APP_NAME}`}
       description="Messagerie interne de First Trust. Connectez-vous avec votre identifiant Windows pour rejoindre vos discussions, groupes et fichiers d’équipe."
       features={[
         "Discussions privées et groupes d’équipe",

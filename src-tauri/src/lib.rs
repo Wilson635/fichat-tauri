@@ -114,7 +114,7 @@ pub fn run() {
             commands::notifications::cmd_test_notification,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Enterprise Chat");
+        .expect("error while running FiEcho");
 }
 
 async fn load_or_create_jwt_secret(app_handle: &tauri::AppHandle) -> String {
@@ -150,7 +150,7 @@ async fn initialize_app(
     app_handle: tauri::AppHandle,
     state: SharedState,
 ) -> anyhow::Result<()> {
-    tracing::info!("Initializing FiChat...");
+    tracing::info!("Initializing FiEcho...");
 
     let jwt_secret = load_or_create_jwt_secret(&app_handle).await;
     {
@@ -191,7 +191,7 @@ async fn initialize_app(
                 s.db_pool  = Some(pool);
                 s.config   = Some(cfg);
                 s.ws_hub   = Some(hub);
-                tracing::info!("FiChat ready ✓ (WS on port {}, PG LISTEN actif)", ws::WS_PORT);
+                tracing::info!("FiEcho ready ✓ (WS on port {}, PG LISTEN actif)", ws::WS_PORT);
             }
             Err(e) => {
                 tracing::error!("PostgreSQL connection failed: {}", e);

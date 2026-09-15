@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "FiChat",
+  "productName": "FiEcho",
   "version": "1.0.0",
   "identifier": "com.firsttrust.fichat",
   "build": {
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "FiChat",
+        "title": "FiEcho",
         "label": "main",
         "width": 1200,
         "height": 750,
@@ -31,8 +31,8 @@
     },
     "trayIcon": {
       "iconPath": "icons/icon.png",
-      "title": "FiChat",
-      "tooltip": "FiChat"
+      "title": "FiEcho",
+      "tooltip": "FiEcho"
     }
   },
   "bundle": {

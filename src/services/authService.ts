@@ -5,6 +5,7 @@
  */
 
 import { UserProfile } from "@/store/authStore";
+import { APP_NAME } from "@/brand";
 
 // ─── Tauri invoke helper ────────────────────────────────────────────────────
 async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -155,7 +156,7 @@ export const authService = {
    */
   async getAppStatus(): Promise<AppStatus> {
     if (!isTauri()) {
-      return { is_configured: true, db_connected: true, app_name: "Enterprise Chat" };
+      return { is_configured: true, db_connected: true, app_name: APP_NAME };
     }
     return tauriInvoke<AppStatus>("cmd_get_app_status");
   },
@@ -189,7 +190,7 @@ export const authService = {
    */
   async loadConfig(): Promise<AppConfig> {
     if (!isTauri()) {
-      return { db_url: "mock", ldap_host: "mock", ldap_port: 389, ldap_base_dn: "dc=example,dc=com", ldap_user_attribute: "sAMAccountName", ldap_use_tls: false, app_name: "Enterprise Chat" };
+      return { db_url: "mock", ldap_host: "mock", ldap_port: 389, ldap_base_dn: "dc=example,dc=com", ldap_user_attribute: "sAMAccountName", ldap_use_tls: false, app_name: APP_NAME };
     }
     return tauriInvoke<AppConfig>("cmd_load_config");
   },

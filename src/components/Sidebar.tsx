@@ -15,6 +15,7 @@ import { NewGroupModal } from "@/components/NewGroupModal";
 import { NewDirectChatModal } from "@/components/NewDirectChatModal";
 import { NotificationCenter } from "@/components/NotificationCenter";
 import { Icon } from "@/components/Icon";
+import { AppLogo } from "@/components/AppLogo";
 
 interface SidebarProps {
   onOpenGlobalSearch?: () => void;
@@ -107,6 +108,7 @@ export function Sidebar({ onOpenGlobalSearch }: SidebarProps) {
         style={{ width: RAIL_WIDTH, backgroundColor: "var(--color-rail)" }}
       >
         <div className="flex flex-col items-center gap-1.5">
+          <AppLogo size={32} className="mb-1.5" />
           <button
             onClick={() => navigate("/profile")}
             className="w-10 h-10 rounded-xl flex items-center justify-center text-[11px] font-semibold text-white shrink-0 mb-2 overflow-hidden"

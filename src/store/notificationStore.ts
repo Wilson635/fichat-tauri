@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import {
   sendPriorityNotification,
+  sendToastNotification,
   setBadgeCount,
   playNotificationSound,
 } from "@/services/notificationService";
@@ -90,23 +91,33 @@ export const useNotificationStore = create<NotificationState>()(
         const tauriRuntime =
           typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+        const soundType: NotifSoundType = prefs?.sound ?? state.globalSound;
+        const urgent = soundType === "priority";
+
         set((s) => ({
           items: [newItem, ...s.items].slice(0, 100),
-          pendingPriority: tauriRuntime ? s.pendingPriority : newItem,
+          pendingPriority:
+            urgent && !tauriRuntime ? newItem : s.pendingPriority,
         }));
 
-        const soundType: NotifSoundType =
-          prefs?.sound ?? state.globalSound;
+        const payload = {
+          title: item.conversationName,
+          body: `${item.senderName}: ${item.content}`,
+          conversationId: item.conversationId,
+        };
 
-        if (!inDnd) {
-          playNotificationSound(soundType === "none" ? "priority" : soundType);
-        }
-
-        if (tauriRuntime) {
-          sendPriorityNotification({
-            title: item.conversationName,
-            body: `${item.senderName}: ${item.content}`,
-            conversationId: item.conversationId,
+        if (urgent) {
+          if (!inDnd) playNotificationSound("priority");
+          if (tauriRuntime) {
+            sendPriorityNotification(payload).catch(() => {});
+          }
+        } else {
+          if (!inDnd && soundType !== "none" && !tauriRuntime) {
+            playNotificationSound("message");
+          }
+          sendToastNotification({
+            ...payload,
+            silent: soundType === "none" || inDnd,
           }).catch(() => {});
         }
 

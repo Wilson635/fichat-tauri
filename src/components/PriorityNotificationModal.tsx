@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useNotificationStore } from "@/store/notificationStore";
 import { Icon } from "@/components/Icon";
+import { APP_NAME } from "@/brand";
 
 export function PriorityNotificationModal() {
   const { pendingPriority, dismissPriority } = useNotificationStore();
@@ -48,7 +49,7 @@ export function PriorityNotificationModal() {
           <div>
             <span className="fichat-priority-kicker">Message prioritaire</span>
             <p className="fichat-priority-brand" id="fichat-priority-title">
-              FiChat
+              {APP_NAME}
             </p>
           </div>
         </div>

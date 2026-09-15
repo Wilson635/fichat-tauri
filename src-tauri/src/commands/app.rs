@@ -31,7 +31,7 @@ pub async fn cmd_get_app_status(
             .config
             .as_ref()
             .map(|c| c.app_name.clone())
-            .unwrap_or_else(|| "Enterprise Chat".into()),
+            .unwrap_or_else(|| crate::config::APP_NAME.into()),
     })
 }
 
@@ -56,7 +56,7 @@ pub async fn cmd_save_config(
         ldap_base_dn: config.ldap_base_dn,
         ldap_user_attribute: config.ldap_user_attribute,
         ldap_use_tls: config.ldap_use_tls,
-        app_name: "Enterprise Chat".to_string(),
+        app_name: crate::config::APP_NAME.to_string(),
     };
 
     let config_path = app_handle

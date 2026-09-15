@@ -7,6 +7,8 @@ import { useNotificationStore, NotifSoundType } from "@/store/notificationStore"
 import { requestNotificationPermission, playNotificationSound, sendTestNotification } from "@/services/notificationService";
 import { isTauri } from "@/services/chatService";
 import { Icon, type IconName } from "@/components/Icon";
+import { AppLogo } from "@/components/AppLogo";
+import { APP_NAME } from "@/brand";
 
 type SettingsSection = "appearance" | "notifications" | "account" | "about";
 
@@ -46,7 +48,7 @@ const NAV: { id: SettingsSection; label: string; hint: string; icon: IconName }[
   { id: "appearance", label: "Apparence", hint: "Thème, couleurs, fond", icon: "palette" },
   { id: "notifications", label: "Notifications", hint: "Sons et alertes", icon: "bell" },
   { id: "account", label: "Compte", hint: "Session et profil", icon: "user" },
-  { id: "about", label: "À propos", hint: "Présentation de FiChat", icon: "info" },
+  { id: "about", label: "À propos", hint: `Présentation de ${APP_NAME}`, icon: "info" },
 ];
 
 function Toggle({
@@ -252,7 +254,7 @@ function AppearanceSection() {
           Apparence
         </h2>
         <p className="text-[13px] mt-1" style={{ color: "var(--color-text-muted)" }}>
-          Personnalisez l’interface de FiChat sur cet appareil.
+          Personnalisez l’interface de {APP_NAME} sur cet appareil.
         </p>
       </div>
 
@@ -415,7 +417,7 @@ function NotificationsSection() {
         <SettingsRow
           icon="bell"
           title={isTauri() ? "Notifications Windows" : "Notifications du navigateur"}
-          description={notifGranted ? "Autorisées sur cet appareil" : "FiChat a besoin de l’autorisation système"}
+          description={notifGranted ? "Autorisées sur cet appareil" : `${APP_NAME} a besoin de l’autorisation système`}
         >
           {notifGranted ? (
             <span className="text-[11px] font-semibold px-2 py-1 rounded-md" style={{ backgroundColor: "rgba(22,163,74,0.12)", color: "#16a34a" }}>
@@ -438,14 +440,24 @@ function NotificationsSection() {
           )}
         </SettingsRow>
 
-        <SettingsRow icon="alert" title="Alerte bloquante" description="Simule une alerte prioritaire de type UAC">
+        <SettingsRow
+          icon="alert"
+          title="Tester une notification"
+          description={
+            globalSound === "priority"
+              ? "Alerte bloquante plein écran"
+              : globalSound === "none"
+                ? "Toast Windows, sans son"
+                : "Toast Windows, comme une notification système"
+          }
+        >
           <button
             type="button"
             disabled={testState === "sending"}
             onClick={async () => {
               setTestState("sending");
               setTestError("");
-              const result = await sendTestNotification();
+              const result = await sendTestNotification(globalSound);
               if (result.success) {
                 setTestState("ok");
                 setTimeout(() => setTestState("idle"), 2500);
@@ -468,8 +480,11 @@ function NotificationsSection() {
 
       <SettingsCard>
         <div className="px-4 py-4">
-          <p className="text-[13px] font-semibold mb-3" style={{ color: "var(--color-text-primary)" }}>
-            Son de notification
+          <p className="text-[13px] font-semibold mb-1" style={{ color: "var(--color-text-primary)" }}>
+            Mode de notification
+          </p>
+          <p className="text-[12px] mb-3" style={{ color: "var(--color-text-muted)" }}>
+            Doux et Silence : toast Windows. Urgent : alerte bloquante.
           </p>
           <div className="grid grid-cols-3 gap-2">
             {soundOptions.map((opt) => {
@@ -612,26 +627,24 @@ function AboutSection() {
           À propos
         </h2>
         <p className="text-[13px] mt-1" style={{ color: "var(--color-text-muted)" }}>
-          Présentation de FiChat et informations techniques.
+          Présentation de {APP_NAME} et informations techniques.
         </p>
       </div>
 
       <div className="flex items-center gap-4 p-4 rounded-2xl border" style={{ backgroundColor: "var(--color-surface)", borderColor: "var(--color-border)" }}>
-        <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ backgroundColor: "var(--color-primary-500)" }}>
-          <Icon name="message" size={22} style={{ color: "#fff" }} />
-        </div>
+        <AppLogo size={48} />
         <div>
-          <p className="text-[15px] font-semibold" style={{ color: "var(--color-text-primary)" }}>FiChat</p>
+          <p className="text-[15px] font-semibold" style={{ color: "var(--color-text-primary)" }}>{APP_NAME}</p>
           <p className="text-[12px]" style={{ color: "var(--color-text-muted)" }}>Messagerie interne First Trust · version 1.0.0</p>
         </div>
       </div>
 
       <div className="rounded-2xl border p-5" style={{ backgroundColor: "var(--color-surface)", borderColor: "var(--color-border)" }}>
         <p className="text-[13px] font-semibold mb-2" style={{ color: "var(--color-text-primary)" }}>
-          Qu’est-ce que FiChat ?
+          Qu’est-ce que {APP_NAME} ?
         </p>
         <p className="text-[13px] leading-relaxed" style={{ color: "var(--color-text-secondary)" }}>
-          FiChat est l’application de messagerie interne de First Trust. Elle permet aux collaborateurs
+          {APP_NAME} est l’application de messagerie interne de First Trust. Elle permet aux collaborateurs
           d’échanger en temps réel, en discussions privées ou en groupes, depuis une application de bureau Windows
           connectée à l’annuaire d’entreprise.
         </p>
@@ -659,7 +672,7 @@ function AboutSection() {
 
       <SettingsCard>
         <SettingsRow icon="lock" title="Authentification" description="LDAP / Active Directory — identifiants du domaine" />
-        <SettingsRow icon="laptop" title="Application de bureau Windows" description={isTauri() ? "FiChat 1.0.0" : "Aperçu web"} />
+        <SettingsRow icon="laptop" title="Application de bureau Windows" description={isTauri() ? `${APP_NAME} 1.0.0` : "Aperçu web"} />
         <SettingsRow icon="info" title="Éditeur" description="First Trust" />
       </SettingsCard>
     </div>
@@ -748,10 +761,10 @@ function SettingsAside({ section }: { section: SettingsSection }) {
 
   return (
     <div className="settings-aside-card p-6 overflow-y-auto">
-      <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4" style={{ backgroundColor: "var(--color-primary-500)" }}>
-        <Icon name="message" size={22} style={{ color: "#fff" }} />
+      <div className="mb-4">
+        <AppLogo size={48} />
       </div>
-      <p className="text-[15px] font-semibold" style={{ color: "var(--color-text-primary)" }}>FiChat</p>
+      <p className="text-[15px] font-semibold" style={{ color: "var(--color-text-primary)" }}>{APP_NAME}</p>
       <p className="text-[12px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>Version 1.0.0 · First Trust</p>
       <p className="text-[13px] leading-relaxed mt-4" style={{ color: "var(--color-text-secondary)" }}>
         Messagerie interne sécurisée pour les équipes First Trust : échanges privés et de groupe,

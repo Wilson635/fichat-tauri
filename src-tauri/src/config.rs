@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+pub const APP_NAME: &str = "FiEcho";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub db_url: String,
@@ -21,7 +23,7 @@ impl Default for AppConfig {
             ldap_base_dn: String::new(),
             ldap_user_attribute: "sAMAccountName".to_string(),
             ldap_use_tls: false,
-            app_name: "Enterprise Chat".to_string(),
+            app_name: APP_NAME.to_string(),
         }
     }
 }

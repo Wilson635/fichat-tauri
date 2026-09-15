@@ -11,6 +11,7 @@ import {
   AuthShell,
   AuthToggle,
 } from "@/components/AuthShell";
+import { APP_NAME } from "@/brand";
 
 interface SetupConfig {
   ldapHost: string;
@@ -129,7 +130,7 @@ export function SetupPage() {
         ldapUserAttribute: config.ldapUserAttribute,
         ldapUseTls: config.ldapUseTls,
         dbUrl: config.dbUrl,
-        appName: "Enterprise Chat",
+        appName: APP_NAME,
       });
       navigate("/login");
     } catch (e) {
@@ -143,7 +144,7 @@ export function SetupPage() {
     <AuthShell
       wide
       headline="Configuration initiale"
-      description="Reliez FiChat à l’infrastructure de First Trust : le serveur de données, puis l’annuaire Active Directory. Aucun compte local n’est créé."
+      description={`Reliez ${APP_NAME} à l’infrastructure de First Trust : le serveur de données, puis l’annuaire Active Directory. Aucun compte local n’est créé.`}
       features={[
         "Détection automatique du SGBD à partir de l’URL",
         "LDAP / Active Directory pour l’authentification",

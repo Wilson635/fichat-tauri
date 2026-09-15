@@ -15,30 +15,33 @@ pub async fn cmd_send_toast_notification(
     title: String,
     body: String,
     _conversation_id: Option<i32>,
+    silent: Option<bool>,
 ) -> Result<(), String> {
-    let plugin_result = app
-        .notification()
-        .builder()
-        .title(&title)
-        .body(&body)
-        .show();
+    let silent = silent.unwrap_or(false);
 
-    if plugin_result.is_ok() {
-        tracing::info!("Toast notification envoyée via plugin Tauri ✓");
-        return Ok(());
+    if !silent {
+        let plugin_result = app.notification().builder().title(&title).body(&body).show();
+        if plugin_result.is_ok() {
+            tracing::info!("Toast notification envoyée via plugin Tauri ✓");
+            return Ok(());
+        }
+        tracing::warn!(
+            "Plugin notification échoué ({}), fallback PowerShell…",
+            plugin_result.unwrap_err()
+        );
     }
-
-    let plugin_err = plugin_result.unwrap_err();
-    tracing::warn!(
-        "Plugin notification échoué ({}), fallback PowerShell…",
-        plugin_err
-    );
 
     #[cfg(target_os = "windows")]
     {
         let safe_title = title.replace('\'', "\\'").replace('"', "\\\"");
         let safe_body = body.replace('\'', "\\'").replace('"', "\\\"");
         let aumid = "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe";
+
+        let audio = if silent {
+            r#"<audio silent="true"/>"#
+        } else {
+            ""
+        };
 
         let ps_script = format!(
             r#"
@@ -53,6 +56,7 @@ $template = @"
       <text>{body}</text>
     </binding>
   </visual>
+  {audio}
 </toast>
 "@
 $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
@@ -64,6 +68,7 @@ $toast.Group = "fichat"
 "#,
             title = safe_title,
             body = safe_body,
+            audio = audio,
             aumid = aumid
         );
 
@@ -79,17 +84,14 @@ $toast.Group = "fichat"
             Ok(_) => tracing::info!("Toast notification envoyée via PowerShell ✓"),
             Err(e) => {
                 tracing::error!("PowerShell fallback échoué: {}", e);
-                return Err(format!(
-                    "Notification impossible: plugin={}, powershell={}",
-                    plugin_err, e
-                ));
+                return Err(format!("Notification toast impossible: {e}"));
             }
         }
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        return Err(plugin_err.to_string());
+        return Err("Notifications toast non disponibles sur cette plateforme".into());
     }
 
     Ok(())
@@ -99,7 +101,7 @@ $toast.Group = "fichat"
 pub async fn cmd_test_notification(app: tauri::AppHandle) -> Result<String, String> {
     cmd_send_priority_notification(
         app,
-        "FiChat — Test notification prioritaire".to_string(),
+        format!("{} — Test notification prioritaire", crate::config::APP_NAME),
         "Ceci est une alerte bloquante de test. Fermez cette fenêtre pour continuer.".to_string(),
         None,
     )
@@ -131,7 +133,7 @@ pub async fn cmd_send_priority_notification(
         &label,
         WebviewUrl::App("priority-alert.html".into()),
     )
-    .title("Message prioritaire — FiChat")
+    .title(&format!("Message prioritaire — {}", crate::config::APP_NAME))
     .always_on_top(true)
     .decorations(false)
     .transparent(true)
@@ -331,9 +333,9 @@ unsafe fn force_foreground_hwnd(hwnd_val: isize) {
 pub async fn cmd_set_badge_count(app: tauri::AppHandle, count: u32) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
         let title = if count > 0 {
-            format!("FiChat ({})", count)
+            format!("{} ({})", crate::config::APP_NAME, count)
         } else {
-            "FiChat".to_string()
+            crate::config::APP_NAME.to_string()
         };
         window.set_title(&title).map_err(|e| e.to_string())?;
     }

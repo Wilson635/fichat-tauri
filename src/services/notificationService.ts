@@ -1,4 +1,7 @@
 import { isTauri } from "@/services/chatService";
+import { APP_NAME } from "@/brand";
+
+export type SoundType = "message" | "priority" | "none";
 
 // ─── Demande de permission ──────────────────────────────────────────────────
 
@@ -26,6 +29,7 @@ export async function sendToastNotification(opts: {
   title: string;
   body: string;
   conversationId?: number;
+  silent?: boolean;
 }): Promise<void> {
   if (isTauri()) {
     try {
@@ -34,6 +38,7 @@ export async function sendToastNotification(opts: {
         title: opts.title,
         body: opts.body,
         conversationId: opts.conversationId ?? null,
+        silent: opts.silent ?? false,
       });
     } catch (e) {
       console.warn("Toast notification failed:", e);
@@ -43,7 +48,8 @@ export async function sendToastNotification(opts: {
   if ("Notification" in window && Notification.permission === "granted") {
     const n = new Notification(opts.title, {
       body: opts.body,
-      icon: "/favicon.ico",
+      icon: "/logo.png",
+      silent: opts.silent ?? false,
       tag: opts.conversationId ? `conv-${opts.conversationId}` : undefined,
       requireInteraction: false,
     });
@@ -101,31 +107,49 @@ export async function setBadgeCount(count: number): Promise<void> {
 
 // ─── Notification de test immédiate ────────────────────────────────────────
 
-export async function sendTestNotification(): Promise<{ success: boolean; method: string; error?: string }> {
-  if (isTauri()) {
+export async function sendTestNotification(
+  mode: SoundType = "priority",
+): Promise<{ success: boolean; method: string; error?: string }> {
+  if (mode === "priority") {
+    if (isTauri()) {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const method = await invoke<string>("cmd_test_notification");
+        return { success: true, method };
+      } catch (e: any) {
+        return { success: false, method: "tauri", error: String(e) };
+      }
+    }
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const method = await invoke<string>("cmd_test_notification");
-      return { success: true, method };
+      await sendPriorityNotification({
+        title: `${APP_NAME} — Test`,
+        body: "Ceci est une alerte bloquante de test.",
+      });
+      return { success: true, method: "browser" };
     } catch (e: any) {
-      return { success: false, method: "tauri", error: String(e) };
+      return { success: false, method: "browser", error: String(e) };
     }
   }
-  // Navigateur
-  if ("Notification" in window) {
-    if (Notification.permission !== "granted") {
+
+  try {
+    if (!isTauri() && "Notification" in window && Notification.permission !== "granted") {
       const perm = await Notification.requestPermission();
       if (perm !== "granted") {
         return { success: false, method: "browser", error: "Permission refusée" };
       }
     }
-    new Notification("FiChat — Test", {
-      body: "Les notifications navigateur fonctionnent ✓",
-      icon: "/favicon.ico",
+    await sendToastNotification({
+      title: `${APP_NAME}`,
+      body:
+        mode === "none"
+          ? "Notification silencieuse — aucun son."
+          : "Nouveau message de test.",
+      silent: mode === "none",
     });
-    return { success: true, method: "browser" };
+    return { success: true, method: isTauri() ? "tauri-toast" : "browser" };
+  } catch (e: any) {
+    return { success: false, method: isTauri() ? "tauri" : "browser", error: String(e) };
   }
-  return { success: false, method: "none", error: "Navigateur ne supporte pas les notifications" };
 }
 
 // ─── Amener la fenêtre au premier plan ─────────────────────────────────────
@@ -142,8 +166,6 @@ export async function focusWindow(): Promise<void> {
 }
 
 // ─── Son de notification ───────────────────────────────────────────────────
-
-type SoundType = "message" | "priority" | "none";
 
 export function playNotificationSound(type: SoundType): void {
   if (type === "none") return;

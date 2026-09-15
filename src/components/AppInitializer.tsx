@@ -23,7 +23,9 @@ import { useAppStore } from "@/store/appStore";
 import { authService } from "@/services/authService";
 import { migrateFromLocalStorage } from "@/services/secureStorage";
 import { Icon } from "@/components/Icon";
+import { AppLogo } from "@/components/AppLogo";
 import { startRuntimeLogCapture } from "@/store/runtimeLogStore";
+import { APP_NAME } from "@/brand";
 
 interface AppInitializerProps {
   children: React.ReactNode;
@@ -117,7 +119,7 @@ export function AppInitializer({ children }: AppInitializerProps) {
             ldapUserAttribute: "sAMAccountName",
             ldapUseTls: false,
             dbUrl: "mock",
-            appName: "Enterprise Chat",
+            appName: APP_NAME,
           });
           setDbConnected(true);
           setSessionChecked(true);
@@ -144,12 +146,7 @@ export function AppInitializer({ children }: AppInitializerProps) {
         className="fixed inset-0 flex flex-col items-center justify-center gap-4"
         style={{ backgroundColor: "var(--color-surface)" }}
       >
-        <div
-          className="w-16 h-16 rounded-2xl flex items-center justify-center"
-          style={{ backgroundColor: "var(--color-primary-500)" }}
-        >
-          <Icon name="message" size={30} style={{ color: "#fff" }} />
-        </div>
+        <AppLogo size={72} />
         <Icon name="loader" size={22} className="animate-spin" style={{ color: "var(--color-primary-500)" }} />
         <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
           Chargement…

@@ -11,6 +11,7 @@ import { useAppStore } from "@/store/appStore";
 import { Icon, type IconName } from "@/components/Icon";
 import { useRuntimeLogStore, formatLogLine, type RuntimeLog } from "@/store/runtimeLogStore";
 import { dbEngineLabel } from "@/utils/dbEngine";
+import { APP_NAME } from "@/brand";
 
 function isTauri(): boolean {
   return typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
@@ -328,7 +329,7 @@ function StatsTab() {
     <div className="space-y-5">
       <SectionIntro
         title="Vue d’ensemble"
-        hint="Santé de FiChat, activité des 14 derniers jours et répartition des comptes."
+        hint={`Santé de ${APP_NAME}, activité des 14 derniers jours et répartition des comptes.`}
       />
 
       <div className="admin-grid-kpis">
@@ -958,7 +959,7 @@ function LogsTab() {
       return;
     }
     const stamp = format(new Date(), "yyyyMMdd-HHmmss");
-    const filename = `fichat-logs-${stamp}.txt`;
+    const filename = `fiecho-logs-${stamp}.txt`;
     setExporting(true);
     setExportMsg(null);
     try {
@@ -1131,7 +1132,7 @@ export function AdminPage() {
             Administration
           </h1>
           <p className="text-[11px] mt-0.5 truncate" style={{ color: "var(--color-text-muted)" }}>
-            {user?.displayName} · console FiChat
+            {user?.displayName} · console {APP_NAME}
           </p>
         </div>
       </div>
