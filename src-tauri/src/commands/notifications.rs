@@ -157,6 +157,7 @@ pub async fn cmd_send_priority_notification(
     .map_err(|e| format!("Impossible d'ouvrir l'alerte prioritaire: {e}"))?;
 
     cover_virtual_screen(&window);
+    let stage = overlay_primary_stage(&window);
     let _ = window.set_effects(
         EffectsBuilder::new()
             .effect(Effect::Acrylic)
@@ -175,13 +176,15 @@ pub async fn cmd_send_priority_notification(
 
     let win_eval = window.clone();
     let payload_eval = payload.clone();
+    let stage_eval = stage;
     tauri::async_runtime::spawn(async move {
         for delay_ms in [80_u64, 200, 400] {
             tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
             let _ = win_eval.emit("priority-payload", payload_eval.clone());
             let script = format!(
-                "window.__FICHAT_PRIORITY__={};window.dispatchEvent(new Event('fichat-priority'));",
-                payload_eval
+                "window.__FICHAT_PRIORITY__={};window.__FICHAT_STAGE__={};window.dispatchEvent(new Event('fichat-priority'));",
+                payload_eval,
+                stage_eval
             );
             let _ = win_eval.eval(&script);
         }
@@ -243,32 +246,104 @@ pub async fn cmd_send_priority_notification(
 }
 
 fn cover_virtual_screen(window: &tauri::WebviewWindow) {
-    #[cfg(target_os = "windows")]
-    {
-        unsafe {
-            use windows_sys::Win32::UI::WindowsAndMessaging::{
-                GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-                SM_YVIRTUALSCREEN,
-            };
-            let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-            let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-            let w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-            let h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-            if w > 0 && h > 0 {
-                let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
-                let _ = window.set_size(tauri::PhysicalSize::new(w as u32, h as u32));
-            } else {
-                let _ = window.maximize();
+    if let Some((x, y, w, h, _, _, _, _)) = virtual_and_primary_bounds(window) {
+        let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+        let _ = window.set_size(tauri::PhysicalSize::new(w, h));
+    } else {
+        #[cfg(target_os = "windows")]
+        {
+            unsafe {
+                use windows_sys::Win32::UI::WindowsAndMessaging::{
+                    GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+                    SM_YVIRTUALSCREEN,
+                };
+                let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                let w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+                let h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+                if w > 0 && h > 0 {
+                    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+                    let _ = window.set_size(tauri::PhysicalSize::new(w as u32, h as u32));
+                } else {
+                    let _ = window.maximize();
+                }
             }
         }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = window.set_fullscreen(true);
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = window.set_fullscreen(true);
+        }
     }
     let _ = window.set_always_on_top(true);
     let _ = window.show();
     let _ = window.set_focus();
+}
+
+fn overlay_primary_stage(window: &tauri::WebviewWindow) -> serde_json::Value {
+    serde_json::to_value(primary_stage_pct(window)).unwrap_or_else(|_| {
+        serde_json::json!({ "left": 0.0, "top": 0.0, "width": 100.0, "height": 100.0 })
+    })
+}
+
+fn primary_stage_pct(window: &tauri::WebviewWindow) -> OverlayStage {
+    if let Some((vx, vy, vw, vh, px, py, pw, ph)) = virtual_and_primary_bounds(window) {
+        if vw > 0 && vh > 0 {
+            return OverlayStage {
+                left: (px - vx) as f64 / vw as f64 * 100.0,
+                top: (py - vy) as f64 / vh as f64 * 100.0,
+                width: pw as f64 / vw as f64 * 100.0,
+                height: ph as f64 / vh as f64 * 100.0,
+            };
+        }
+    }
+    OverlayStage {
+        left: 0.0,
+        top: 0.0,
+        width: 100.0,
+        height: 100.0,
+    }
+}
+
+#[derive(serde::Serialize)]
+struct OverlayStage {
+    left: f64,
+    top: f64,
+    width: f64,
+    height: f64,
+}
+
+fn virtual_and_primary_bounds(
+    window: &tauri::WebviewWindow,
+) -> Option<(i32, i32, u32, u32, i32, i32, u32, u32)> {
+    let monitors = window.available_monitors().ok()?;
+    if monitors.is_empty() {
+        return None;
+    }
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+    for monitor in &monitors {
+        let p = monitor.position();
+        let s = monitor.size();
+        min_x = min_x.min(p.x);
+        min_y = min_y.min(p.y);
+        max_x = max_x.max(p.x.saturating_add(s.width as i32));
+        max_y = max_y.max(p.y.saturating_add(s.height as i32));
+    }
+    let vw = (max_x - min_x).max(1) as u32;
+    let vh = (max_y - min_y).max(1) as u32;
+
+    let primary = window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| monitors.into_iter().next());
+    let primary = primary?;
+    let pp = primary.position();
+    let ps = primary.size();
+
+    Some((min_x, min_y, vw, vh, pp.x, pp.y, ps.width, ps.height))
 }
 
 fn force_window_foreground(window: &tauri::WebviewWindow) {
