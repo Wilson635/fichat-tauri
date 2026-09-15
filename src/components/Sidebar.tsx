@@ -1,7 +1,14 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
-import { useThemeStore } from "@/store/themeStore";
+import {
+  useThemeStore,
+  RAIL_WIDTH,
+  SIDEBAR_LIST_DEFAULT,
+  SIDEBAR_LIST_MIN,
+  SIDEBAR_LIST_MAX,
+  clampSidebarListWidth,
+} from "@/store/themeStore";
 import { useChatStore } from "@/store/chatStore";
 import { ConversationList } from "@/components/ConversationList";
 import { NewGroupModal } from "@/components/NewGroupModal";
@@ -15,10 +22,13 @@ interface SidebarProps {
 
 export function Sidebar({ onOpenGlobalSearch }: SidebarProps) {
   const { user } = useAuthStore();
-  const { theme, setTheme } = useThemeStore();
+  const { theme, setTheme, sidebarWidth, setSidebarWidth } = useThemeStore();
   const { searchQuery, setSearchQuery } = useChatStore();
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showNewDirect, setShowNewDirect] = useState(false);
+  const [listWidth, setListWidth] = useState(() => clampSidebarListWidth(sidebarWidth));
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef({ active: false, startX: 0, startW: 0 });
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const compactList = ["/admin", "/settings", "/profile"].some((p) => pathname.startsWith(p));
@@ -26,18 +36,75 @@ export function Sidebar({ onOpenGlobalSearch }: SidebarProps) {
 
   const toggleTheme = () => setTheme(theme === "dark" ? "light" : "dark");
 
+  useEffect(() => {
+    setListWidth(clampSidebarListWidth(sidebarWidth));
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    const onResize = () => setListWidth((w) => clampSidebarListWidth(w));
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      document.body.classList.remove("sidebar-resizing");
+    };
+  }, []);
+
+  const endDrag = useCallback((clientX?: number) => {
+    if (!dragRef.current.active) return;
+    const x = clientX ?? dragRef.current.startX;
+    const next = clampSidebarListWidth(dragRef.current.startW + (x - dragRef.current.startX));
+    dragRef.current.active = false;
+    setDragging(false);
+    document.body.classList.remove("sidebar-resizing");
+    setListWidth(next);
+    setSidebarWidth(next);
+  }, [setSidebarWidth]);
+
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      if (!dragRef.current.active) return;
+      setListWidth(clampSidebarListWidth(dragRef.current.startW + (e.clientX - dragRef.current.startX)));
+    };
+    const onUp = (e: PointerEvent) => endDrag(e.clientX);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [endDrag]);
+
+  const startDrag = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    dragRef.current = { active: true, startX: e.clientX, startW: listWidth };
+    setDragging(true);
+    document.body.classList.add("sidebar-resizing");
+  };
+
+  const resetWidth = () => {
+    const next = clampSidebarListWidth(SIDEBAR_LIST_DEFAULT);
+    setListWidth(next);
+    setSidebarWidth(next);
+  };
+
   const initials = user?.displayName
     ? user.displayName.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
     : "?";
 
   return (
     <aside
-      className="flex shrink-0"
-      style={{ width: compactList ? 64 : 380, borderRight: "1px solid var(--color-border)" }}
+      className="flex shrink-0 relative min-w-0"
+      style={{
+        width: compactList ? RAIL_WIDTH : RAIL_WIDTH + listWidth,
+        borderRight: "1px solid var(--color-border)",
+      }}
     >
       <div
         className="flex flex-col items-center justify-between py-4 shrink-0"
-        style={{ width: 64, backgroundColor: "var(--color-rail)" }}
+        style={{ width: RAIL_WIDTH, backgroundColor: "var(--color-rail)" }}
       >
         <div className="flex flex-col items-center gap-1.5">
           <button
@@ -103,7 +170,7 @@ export function Sidebar({ onOpenGlobalSearch }: SidebarProps) {
       </div>
 
       {!compactList && (
-      <div className="flex flex-col flex-1 min-w-0" style={{ backgroundColor: "var(--color-sidebar-bg)" }}>
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden" style={{ backgroundColor: "var(--color-sidebar-bg)" }}>
         <div className="flex items-center justify-between px-5 shrink-0" style={{ height: 60 }}>
           <span className="font-semibold text-[15px] tracking-tight" style={{ color: "var(--color-text-primary)" }}>
             Discussions
@@ -121,7 +188,7 @@ export function Sidebar({ onOpenGlobalSearch }: SidebarProps) {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Rechercher…"
-              className="flex-1 bg-transparent text-[13px] outline-none font-medium"
+              className="flex-1 min-w-0 bg-transparent text-[13px] outline-none font-medium"
               style={{ color: "var(--color-text-primary)" }}
             />
             {searchQuery ? (
@@ -147,6 +214,21 @@ export function Sidebar({ onOpenGlobalSearch }: SidebarProps) {
 
         <ConversationList searchQuery={searchQuery} onNewGroup={() => setShowNewGroup(true)} />
       </div>
+      )}
+
+      {!compactList && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Redimensionner la liste des discussions"
+          aria-valuemin={SIDEBAR_LIST_MIN}
+          aria-valuemax={SIDEBAR_LIST_MAX}
+          aria-valuenow={listWidth}
+          title="Glisser pour redimensionner · double-clic pour la largeur par défaut"
+          className={`sidebar-resizer ${dragging ? "is-dragging" : ""}`}
+          onPointerDown={startDrag}
+          onDoubleClick={resetWidth}
+        />
       )}
 
       {showNewDirect && <NewDirectChatModal onClose={() => setShowNewDirect(false)} />}

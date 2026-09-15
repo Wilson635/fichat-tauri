@@ -168,7 +168,7 @@ export const authService = {
     try {
       await tauriInvoke("cmd_test_db_connection", { url });
     } catch (e) {
-      throw new Error(`Connexion PostgreSQL échouée : ${normalizeAuthError(e)}`);
+      throw new Error(`Connexion à la base de données échouée : ${normalizeAuthError(e)}`);
     }
   },
 

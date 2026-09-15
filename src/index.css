@@ -194,6 +194,37 @@ button, input, textarea, select {
   background-color: var(--color-rail-active);
   color: var(--color-primary-400);
 }
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  z-index: 30;
+  cursor: col-resize;
+  touch-action: none;
+}
+.sidebar-resizer::after {
+  content: "";
+  position: absolute;
+  top: 12%;
+  bottom: 12%;
+  left: 2px;
+  width: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+.sidebar-resizer:hover::after,
+.sidebar-resizer.is-dragging::after {
+  background: var(--color-primary-500);
+  opacity: 0.9;
+}
+body.sidebar-resizing,
+body.sidebar-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
 
 /* ─── Scrollbar custom ─── */
 ::-webkit-scrollbar {
@@ -437,6 +468,11 @@ button, input, textarea, select {
    mean "descendant", which would never match.
    Always reset --chat-bg-image so nested swatches don't inherit a previous pattern. */
 
+/* Default position so nested swatches do not inherit Horizon's offset. */
+[data-chat-bg] {
+  --chat-bg-position: center;
+}
+
 /* Brume — soft teal / warm-gray mesh */
 [data-chat-bg="default"] {
   --color-chat-bg: #eef1f4;
@@ -544,6 +580,220 @@ button, input, textarea, select {
   --chat-bg-repeat: repeat, no-repeat, no-repeat;
 }
 
+/* Ardoise — cool steel office wash */
+[data-chat-bg="slate"] {
+  --color-chat-bg: #e6ebf0;
+  --chat-bg-image:
+    radial-gradient(920px 480px at 0% 0%, rgba(90, 118, 148, 0.18), transparent 55%),
+    radial-gradient(780px 420px at 100% 100%, rgba(40, 58, 78, 0.10), transparent 58%),
+    linear-gradient(180deg, #eef2f6 0%, #dce3ea 100%);
+  --chat-bg-size: auto, auto, auto;
+  --chat-bg-repeat: no-repeat;
+}
+.dark[data-chat-bg="slate"],
+.dark [data-chat-bg="slate"] {
+  --color-chat-bg: #151a21;
+  --chat-bg-image:
+    radial-gradient(900px 500px at 8% 0%, rgba(120, 150, 180, 0.14), transparent 52%),
+    radial-gradient(700px 400px at 100% 90%, rgba(30, 40, 55, 0.7), transparent 58%),
+    linear-gradient(180deg, #181e26 0%, #10151b 100%);
+  --chat-bg-size: auto, auto, auto;
+  --chat-bg-repeat: no-repeat;
+}
+
+/* Marine — executive navy with a quiet gold bloom */
+[data-chat-bg="navy"] {
+  --color-chat-bg: #e7ebf2;
+  --chat-bg-image:
+    radial-gradient(880px 460px at 100% 0%, rgba(196, 164, 108, 0.22), transparent 50%),
+    radial-gradient(960px 540px at 0% 100%, rgba(28, 49, 84, 0.14), transparent 55%),
+    linear-gradient(165deg, #eef1f7 0%, #dfe5ef 100%);
+  --chat-bg-size: auto, auto, auto;
+  --chat-bg-repeat: no-repeat;
+}
+.dark[data-chat-bg="navy"],
+.dark [data-chat-bg="navy"] {
+  --color-chat-bg: #0c1320;
+  --chat-bg-image:
+    radial-gradient(820px 440px at 100% 0%, rgba(196, 164, 108, 0.14), transparent 48%),
+    radial-gradient(900px 520px at 0% 80%, rgba(40, 72, 128, 0.28), transparent 55%),
+    linear-gradient(180deg, #10182a 0%, #090e18 100%);
+  --chat-bg-size: auto, auto, auto;
+  --chat-bg-repeat: no-repeat;
+}
+
+/* Sauge — muted trust green */
+[data-chat-bg="sage"] {
+  --color-chat-bg: #e7eee8;
+  --chat-bg-image:
+    radial-gradient(900px 500px at 12% -8%, rgba(125, 155, 130, 0.28), transparent 55%),
+    radial-gradient(760px 440px at 100% 110%, rgba(90, 118, 96, 0.14), transparent 58%),
+    linear-gradient(180deg, #f1f5f1 0%, #dde6de 100%);
+  --chat-bg-size: auto, auto, auto;
+  --chat-bg-repeat: no-repeat;
+}
+.dark[data-chat-bg="sage"],
+.dark [data-chat-bg="sage"] {
+  --color-chat-bg: #121816;
+  --chat-bg-image:
+    radial-gradient(860px 480px at 0% 0%, rgba(110, 150, 120, 0.16), transparent 50%),
+    radial-gradient(700px 400px at 100% 100%, rgba(40, 60, 48, 0.55), transparent 58%),
+    linear-gradient(180deg, #151c19 0%, #0e1311 100%);
+  --chat-bg-size: auto, auto, auto;
+  --chat-bg-repeat: no-repeat;
+}
+
+/* Graphite — fine grain charcoal */
+[data-chat-bg="graphite"] {
+  --color-chat-bg: #ececee;
+  --chat-bg-image:
+    radial-gradient(circle at 1px 1px, rgba(30, 34, 42, 0.10) 1px, transparent 1.4px),
+    radial-gradient(900px 480px at 50% 0%, rgba(255, 255, 255, 0.7), transparent 62%),
+    linear-gradient(180deg, #f3f3f5 0%, #e4e4e8 100%);
+  --chat-bg-size: 15px 15px, auto, auto;
+  --chat-bg-repeat: repeat, no-repeat, no-repeat;
+}
+.dark[data-chat-bg="graphite"],
+.dark [data-chat-bg="graphite"] {
+  --color-chat-bg: #141416;
+  --chat-bg-image:
+    radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.055) 1px, transparent 1.4px),
+    radial-gradient(860px 460px at 30% 0%, rgba(255, 255, 255, 0.04), transparent 55%),
+    linear-gradient(180deg, #1a1a1d 0%, #101012 100%);
+  --chat-bg-size: 15px 15px, auto, auto;
+  --chat-bg-repeat: repeat, no-repeat, no-repeat;
+}
+
+/* Sable — warm sandstone */
+[data-chat-bg="sand"] {
+  --color-chat-bg: #f3eadc;
+  --chat-bg-image:
+    radial-gradient(1000px 520px at 80% -10%, rgba(232, 196, 140, 0.35), transparent 55%),
+    radial-gradient(820px 460px at 0% 100%, rgba(168, 132, 88, 0.14), transparent 58%),
+    linear-gradient(165deg, #f8f1e6 0%, #eadcc8 100%);
+  --chat-bg-size: auto, auto, auto;
+  --chat-bg-repeat: no-repeat;
+}
+.dark[data-chat-bg="sand"],
+.dark [data-chat-bg="sand"] {
+  --color-chat-bg: #1a1612;
+  --chat-bg-image:
+    radial-gradient(880px 480px at 90% 0%, rgba(196, 150, 90, 0.16), transparent 50%),
+    radial-gradient(720px 400px at 0% 100%, rgba(80, 56, 32, 0.45), transparent 58%),
+    linear-gradient(180deg, #1f1a15 0%, #14110e 100%);
+  --chat-bg-size: auto, auto, auto;
+  --chat-bg-repeat: no-repeat;
+}
+
+/* Givre — icy blue glacier */
+[data-chat-bg="frost"] {
+  --color-chat-bg: #e8f2f8;
+  --chat-bg-image:
+    radial-gradient(circle at 18% 22%, rgba(255, 255, 255, 0.9) 0 1.5px, transparent 2px),
+    radial-gradient(circle at 72% 64%, rgba(255, 255, 255, 0.75) 0 1px, transparent 1.6px),
+    radial-gradient(920px 500px at 100% 0%, rgba(140, 190, 220, 0.35), transparent 52%),
+    radial-gradient(780px 440px at 0% 100%, rgba(180, 210, 230, 0.28), transparent 55%),
+    linear-gradient(180deg, #f4f9fc 0%, #dceaf2 100%);
+  --chat-bg-size: 72px 72px, 96px 96px, auto, auto, auto;
+  --chat-bg-repeat: repeat, repeat, no-repeat, no-repeat, no-repeat;
+}
+.dark[data-chat-bg="frost"],
+.dark [data-chat-bg="frost"] {
+  --color-chat-bg: #0e171e;
+  --chat-bg-image:
+    radial-gradient(circle at 18% 22%, rgba(200, 230, 255, 0.14) 0 1.5px, transparent 2px),
+    radial-gradient(880px 480px at 100% 0%, rgba(90, 160, 200, 0.18), transparent 50%),
+    radial-gradient(720px 400px at 0% 100%, rgba(30, 60, 80, 0.5), transparent 58%),
+    linear-gradient(180deg, #121c24 0%, #0a1218 100%);
+  --chat-bg-size: 72px 72px, auto, auto, auto;
+  --chat-bg-repeat: repeat, no-repeat, no-repeat, no-repeat;
+}
+
+/* Horizon — dusk bands */
+[data-chat-bg="horizon"] {
+  --color-chat-bg: #e8e6e2;
+  --chat-bg-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='48' viewBox='0 0 160 48'%3E%3Cpath d='M0 28 Q40 8 80 28 T160 28' fill='none' stroke='rgba(50,70,95,0.08)' stroke-width='1.2'/%3E%3Cpath d='M0 36 Q40 18 80 36 T160 36' fill='none' stroke='rgba(50,70,95,0.05)' stroke-width='1'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, #d7e4ef 0%, #e8e2d8 48%, #ddd4c6 100%);
+  --chat-bg-size: 160px 48px, auto;
+  --chat-bg-repeat: repeat, no-repeat;
+  --chat-bg-position: center bottom, center;
+}
+.dark[data-chat-bg="horizon"],
+.dark [data-chat-bg="horizon"] {
+  --color-chat-bg: #161820;
+  --chat-bg-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='48' viewBox='0 0 160 48'%3E%3Cpath d='M0 28 Q40 8 80 28 T160 28' fill='none' stroke='rgba(200,170,130,0.10)' stroke-width='1.2'/%3E%3Cpath d='M0 36 Q40 18 80 36 T160 36' fill='none' stroke='rgba(200,170,130,0.06)' stroke-width='1'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, #1a2434 0%, #1e1a1c 55%, #141214 100%);
+  --chat-bg-size: 160px 48px, auto;
+  --chat-bg-repeat: repeat, no-repeat;
+  --chat-bg-position: center bottom, center;
+}
+
+/* Plan — architectural blueprint grid */
+[data-chat-bg="grid"] {
+  --color-chat-bg: #eef3f7;
+  --chat-bg-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cpath d='M40 0H0M0 0v40' fill='none' stroke='rgba(30,70,110,0.07)' stroke-width='1'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cpath d='M160 0H0M0 0v160' fill='none' stroke='rgba(30,70,110,0.10)' stroke-width='1'/%3E%3C/svg%3E"),
+    radial-gradient(900px 480px at 100% 0%, rgba(70, 140, 180, 0.10), transparent 52%),
+    linear-gradient(180deg, #f5f8fb 0%, #e4ebf1 100%);
+  --chat-bg-size: 40px 40px, 160px 160px, auto, auto;
+  --chat-bg-repeat: repeat, repeat, no-repeat, no-repeat;
+}
+.dark[data-chat-bg="grid"],
+.dark [data-chat-bg="grid"] {
+  --color-chat-bg: #10161c;
+  --chat-bg-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cpath d='M40 0H0M0 0v40' fill='none' stroke='rgba(120,190,220,0.055)' stroke-width='1'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cpath d='M160 0H0M0 0v160' fill='none' stroke='rgba(120,190,220,0.08)' stroke-width='1'/%3E%3C/svg%3E"),
+    radial-gradient(860px 460px at 0% 0%, rgba(50, 140, 180, 0.14), transparent 50%),
+    linear-gradient(180deg, #141c24 0%, #0c1218 100%);
+  --chat-bg-size: 40px 40px, 160px 160px, auto, auto;
+  --chat-bg-repeat: repeat, repeat, no-repeat, no-repeat;
+}
+
+/* Soie — diagonal satin sheen */
+[data-chat-bg="silk"] {
+  --color-chat-bg: #f2eee8;
+  --chat-bg-image:
+    repeating-linear-gradient(128deg, rgba(255, 255, 255, 0.55) 0 14px, rgba(120, 100, 80, 0.045) 14px 28px, rgba(255, 255, 255, 0.28) 28px 42px, transparent 42px 56px),
+    linear-gradient(165deg, #f8f5f0 0%, #ebe4da 100%);
+  --chat-bg-size: auto, auto;
+  --chat-bg-repeat: repeat, no-repeat;
+}
+.dark[data-chat-bg="silk"],
+.dark [data-chat-bg="silk"] {
+  --color-chat-bg: #17151a;
+  --chat-bg-image:
+    repeating-linear-gradient(128deg, rgba(255, 255, 255, 0.04) 0 14px, rgba(0, 0, 0, 0.12) 14px 28px, rgba(255, 255, 255, 0.02) 28px 42px, transparent 42px 56px),
+    radial-gradient(800px 440px at 80% 0%, rgba(180, 150, 190, 0.10), transparent 50%),
+    linear-gradient(180deg, #1c191f 0%, #121015 100%);
+  --chat-bg-size: auto, auto, auto;
+  --chat-bg-repeat: repeat, no-repeat, no-repeat;
+}
+
+/* Encre — indigo ink paper */
+[data-chat-bg="ink"] {
+  --color-chat-bg: #eceaf4;
+  --chat-bg-image:
+    radial-gradient(960px 520px at 0% 0%, rgba(90, 80, 150, 0.16), transparent 55%),
+    radial-gradient(820px 460px at 100% 100%, rgba(50, 40, 90, 0.10), transparent 58%),
+    linear-gradient(180deg, #f3f1f8 0%, #e4e0ee 100%);
+  --chat-bg-size: auto, auto, auto;
+  --chat-bg-repeat: no-repeat;
+}
+.dark[data-chat-bg="ink"],
+.dark [data-chat-bg="ink"] {
+  --color-chat-bg: #0c0e18;
+  --chat-bg-image:
+    radial-gradient(900px 500px at 10% 0%, rgba(90, 80, 170, 0.22), transparent 50%),
+    radial-gradient(760px 420px at 100% 100%, rgba(30, 24, 70, 0.55), transparent 58%),
+    linear-gradient(180deg, #121428 0%, #090b14 100%);
+  --chat-bg-size: auto, auto, auto;
+  --chat-bg-repeat: no-repeat;
+}
+
 /* Apply the background image/size to elements using the chat-bg class */
 .chat-bg {
   background-color: var(--color-chat-bg);
@@ -572,6 +822,10 @@ button, input, textarea, select {
 .animate-fade-in {
   animation: fade-in 0.2s ease-out both;
 }
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 
 @keyframes slide-in-right {
   from { opacity: 0; transform: translateX(16px); }
@@ -584,4 +838,389 @@ button, input, textarea, select {
 @keyframes voice-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.55; transform: scale(0.85); }
+}
+
+/* ─── Login / Setup shell ───────────────────────────────────────────────── */
+.auth-page {
+  height: 100%;
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(320px, 0.92fr) minmax(0, 1.18fr);
+  min-width: 0;
+  overflow: hidden;
+  background: var(--color-surface-secondary);
+}
+.auth-brand {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  color: #e8edf4;
+  background-color: #0b1220;
+  background-image:
+    radial-gradient(900px 520px at 0% 0%, rgba(0, 168, 132, 0.28), transparent 55%),
+    radial-gradient(760px 440px at 100% 100%, rgba(70, 110, 170, 0.22), transparent 58%),
+    linear-gradient(180deg, #10182a 0%, #0b1220 100%);
+  padding: 2.5rem 2.25rem 1.75rem;
+}
+.auth-brand::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cpath d='M40 0H0M0 0v40' fill='none' stroke='rgba(255,255,255,0.035)' stroke-width='1'/%3E%3C/svg%3E");
+  background-size: 40px 40px;
+  opacity: 0.7;
+}
+.auth-brand > * {
+  position: relative;
+  z-index: 1;
+}
+.auth-main {
+  display: flex;
+  flex-direction: column;
+  justify-content: safe center;
+  align-items: center;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2rem 1.5rem;
+}
+.auth-card {
+  width: 100%;
+  max-width: 440px;
+}
+.auth-card.is-wide {
+  max-width: 520px;
+}
+.auth-brand-compact {
+  display: none;
+}
+.auth-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: var(--color-input-bg);
+  border: 1px solid var(--color-border);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.auth-field:focus-within {
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px var(--color-active);
+}
+.auth-field input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 13.5px;
+  color: var(--color-text-primary);
+}
+.auth-field textarea {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  font-size: 13.5px;
+  color: var(--color-text-primary);
+}
+.auth-bubble {
+  max-width: 86%;
+  padding: 10px 12px 8px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.auth-bubble.in {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px 16px 16px 4px;
+  color: #e8edf4;
+}
+.auth-bubble.out {
+  margin-left: auto;
+  background: rgba(0, 168, 132, 0.28);
+  border: 1px solid rgba(0, 168, 132, 0.22);
+  border-radius: 16px 16px 4px 16px;
+  color: #f4fffb;
+}
+
+@media (max-width: 860px) {
+  .auth-page {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+  .auth-brand {
+    display: none;
+  }
+  .auth-brand-compact {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 1.5rem;
+  }
+  .auth-main {
+    padding: 1.5rem 1.15rem 2rem;
+  }
+}
+
+/* ─── Message composer ──────────────────────────────────────────────────── */
+.composer-wrap {
+  flex-shrink: 0;
+  padding: 10px 16px 14px;
+  background: var(--color-header-bg);
+  border-top: 1px solid var(--color-border);
+}
+.composer-card {
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  overflow: visible;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.composer-card.is-focused {
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px var(--color-active);
+}
+.composer-card.is-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+.composer-reply {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 12px 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--color-surface-secondary);
+  border-left: 3px solid var(--color-primary-500);
+}
+.composer-attach {
+  padding: 10px 12px 0;
+}
+.composer-attach > div {
+  margin-bottom: 0;
+}
+.composer-field {
+  width: 100%;
+  min-height: 42px;
+  max-height: 140px;
+  padding: 12px 14px 6px;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-text-primary);
+}
+.composer-field::placeholder {
+  color: var(--color-text-muted);
+}
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 8px;
+}
+.composer-tool {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.composer-tool:hover:not(:disabled) {
+  background: var(--color-surface-secondary);
+  color: var(--color-text-primary);
+}
+.composer-tool.is-on {
+  background: var(--color-active);
+  color: var(--color-primary-500);
+  border-color: transparent;
+}
+.composer-tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.composer-hint {
+  margin-left: auto;
+  margin-right: 8px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.composer-send {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  background: var(--color-primary-500);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.composer-send:hover:not(:disabled) {
+  opacity: 0.92;
+}
+.composer-send:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.composer-send.is-mic {
+  background: var(--color-surface-secondary);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+}
+.composer-send.is-mic:hover:not(:disabled) {
+  color: var(--color-primary-500);
+  border-color: var(--color-primary-500);
+  opacity: 1;
+}
+.composer-record {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+}
+@media (max-width: 720px) {
+  .composer-hint {
+    display: none;
+  }
+  .composer-wrap {
+    padding: 8px 10px 12px;
+  }
+}
+
+/* ─── Composer popovers (attach + emoji) ─────────────────────────────────── */
+.fichat-popover {
+  width: 320px;
+  border-radius: 16px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: 0 24px 48px -18px rgba(15, 23, 42, 0.28);
+  overflow: hidden;
+  animation: slideUp 0.18s ease-out;
+  font-family: "Poppins", "Segoe UI", sans-serif;
+}
+.fichat-popover.is-emoji {
+  width: 352px;
+}
+.fichat-popover-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+.fichat-popover-head .icon-well {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-active);
+  color: var(--color-primary-500);
+  flex-shrink: 0;
+}
+.fichat-popover-head h3 {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-text-primary);
+  line-height: 1.2;
+}
+.fichat-popover-head p {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: 1px;
+}
+.fichat-attach-list {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.fichat-attach-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 10px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+.fichat-attach-item:hover {
+  background: var(--color-surface-secondary);
+  border-color: var(--color-border);
+}
+.fichat-attach-item .icon-well {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-active);
+  color: var(--color-primary-600);
+  flex-shrink: 0;
+}
+.fichat-attach-item .title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+.fichat-attach-item .hint {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  margin-top: 1px;
+}
+.fichat-popover-foot {
+  padding: 8px 14px 12px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  border-top: 1px solid var(--color-border);
+}
+.fichat-emoji-panel em-emoji-picker {
+  --font-family: "Poppins", "Segoe UI", sans-serif;
+  --font-size: 14px;
+  --border-radius: 0;
+  --shadow: none;
+  --rgb-accent: 0, 168, 132;
+  --rgb-background: 255, 255, 255;
+  --rgb-input: 241, 243, 246;
+  --rgb-color: 15, 23, 42;
+  --color-border: rgba(15, 23, 42, 0.08);
+  width: 100%;
+  height: 348px;
+}
+.dark .fichat-emoji-panel em-emoji-picker {
+  --rgb-background: 15, 23, 42;
+  --rgb-input: 30, 41, 59;
+  --rgb-color: 241, 245, 249;
+  --color-border: rgba(255, 255, 255, 0.08);
 }

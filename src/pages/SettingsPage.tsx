@@ -30,6 +30,16 @@ const chatBackgrounds: { id: ChatBackground; label: string; hint: string }[] = [
   { id: "dark", label: "Nuit", hint: "Sombre produit" },
   { id: "pattern-dots", label: "Lin", hint: "Texture fine" },
   { id: "pattern-bubble", label: "Trame", hint: "Losanges" },
+  { id: "slate", label: "Ardoise", hint: "Acier froid" },
+  { id: "navy", label: "Marine", hint: "Navy et or" },
+  { id: "sage", label: "Sauge", hint: "Vert calme" },
+  { id: "graphite", label: "Graphite", hint: "Grain fin" },
+  { id: "sand", label: "Sable", hint: "Pierre chaude" },
+  { id: "frost", label: "Givre", hint: "Bleu glacier" },
+  { id: "horizon", label: "Horizon", hint: "Crépuscule" },
+  { id: "grid", label: "Plan", hint: "Quadrillage" },
+  { id: "silk", label: "Soie", hint: "Satin diagonal" },
+  { id: "ink", label: "Encre", hint: "Indigo" },
 ];
 
 const NAV: { id: SettingsSection; label: string; hint: string; icon: IconName }[] = [
@@ -234,7 +244,6 @@ function AppearanceSection() {
     theme, accentColor, fontSize, chatBackground,
     setTheme, setAccentColor, setFontSize, setChatBackground,
   } = useThemeStore();
-  const isDark = document.documentElement.classList.contains("dark");
 
   return (
     <div className="space-y-6">
@@ -340,11 +349,11 @@ function AppearanceSection() {
           <p className="text-[12px] mb-4" style={{ color: "var(--color-text-muted)" }}>
             Appliqué à la zone de messages.
           </p>
-          <div className="grid grid-cols-5 gap-2.5 mb-4">
+          <div className="grid grid-cols-5 gap-2 mb-4">
             {chatBackgrounds.map((bg) => {
               const on = chatBackground === bg.id;
               return (
-                <button key={bg.id} type="button" onClick={() => setChatBackground(bg.id)} className="flex flex-col items-center gap-1.5" title={bg.hint}>
+                <button key={bg.id} type="button" onClick={() => setChatBackground(bg.id)} className="flex flex-col items-center gap-1.5 min-w-0" title={bg.hint}>
                   <div
                     className="chat-bg w-full aspect-square rounded-xl overflow-hidden flex items-center justify-center"
                     data-chat-bg={bg.id}
@@ -352,9 +361,15 @@ function AppearanceSection() {
                       boxShadow: on ? "0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-primary-500)" : "inset 0 0 0 1px var(--color-border)",
                     }}
                   >
-                    {on && <Icon name="check" size={16} style={{ color: isDark ? "#fff" : "#0F172A" }} />}
+                    {on && (
+                      <Icon
+                        name="checkBadge"
+                        size={16}
+                        style={{ color: "var(--color-primary-500)", filter: "drop-shadow(0 1px 2px rgba(0,0,0,.35))" }}
+                      />
+                    )}
                   </div>
-                  <span className="text-[11px] font-medium" style={{ color: on ? "var(--color-text-primary)" : "var(--color-text-muted)" }}>
+                  <span className="text-[11px] font-medium truncate w-full text-center" style={{ color: on ? "var(--color-text-primary)" : "var(--color-text-muted)" }}>
                     {bg.label}
                   </span>
                 </button>

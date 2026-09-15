@@ -144,7 +144,7 @@ export function ConversationList({ searchQuery }: Props) {
 
   if (isLoadingConversations) {
     return (
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden">
           {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="flex items-center gap-3 px-3 py-3 animate-pulse">
                 <div className="w-11 h-11 rounded-full shrink-0" style={{ backgroundColor: "var(--color-surface-secondary)" }} />
@@ -172,7 +172,7 @@ export function ConversationList({ searchQuery }: Props) {
   }
 
   return (
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-1.5">
         {filtered.map((conv) => {
           const isActive = conv.id === activeId;
           const otherParticipants = conv.participants.filter((p) => p.userId !== user?.id);
@@ -185,7 +185,7 @@ export function ConversationList({ searchQuery }: Props) {
               <button
                   key={conv.id}
                   onClick={() => navigate(`/conversations/${conv.id}`)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 mx-1 rounded-xl transition-colors text-left"
+                  className="w-full max-w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-colors text-left box-border"
                   style={{
                     backgroundColor: isActive ? "var(--color-active)" : "transparent",
                   }}
@@ -212,7 +212,7 @@ export function ConversationList({ searchQuery }: Props) {
                   {conv.name}
                 </span>
                     <span
-                        className="text-xs shrink-0"
+                        className="text-[11px] tabular-nums shrink-0 whitespace-nowrap"
                         style={{ color: conv.unreadCount > 0 ? "var(--color-primary-500)" : "var(--color-text-muted)" }}
                     >
                   {formatConvTime(conv.lastMessageAt)}
@@ -220,14 +220,14 @@ export function ConversationList({ searchQuery }: Props) {
                   </div>
 
                   <div className="flex items-center justify-between gap-1 mt-0.5">
-                    <div className="flex items-center gap-1 min-w-0">
+                    <div className="flex items-center gap-1 min-w-0 flex-1">
                       {lastOwnMsg && (
                           <span className="shrink-0">
                       <StatusIcon status={lastOwnMsg.status} />
                     </span>
                       )}
                       <span
-                          className="text-xs truncate"
+                          className="text-xs truncate min-w-0"
                           style={{ color: "var(--color-text-muted)" }}
                       >
                     {conv.lastMessage ?? "Aucun message"}

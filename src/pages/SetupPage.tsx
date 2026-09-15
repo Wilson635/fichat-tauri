@@ -2,6 +2,15 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "@/store/appStore";
 import { authService } from "@/services/authService";
+import { dbEngineLabel } from "@/utils/dbEngine";
+import { Icon } from "@/components/Icon";
+import {
+  AuthAlert,
+  AuthField,
+  AuthPrimaryButton,
+  AuthShell,
+  AuthToggle,
+} from "@/components/AuthShell";
 
 interface SetupConfig {
   ldapHost: string;
@@ -10,6 +19,45 @@ interface SetupConfig {
   ldapUserAttribute: string;
   ldapUseTls: boolean;
   dbUrl: string;
+}
+
+function StepDot({
+  n,
+  label,
+  active,
+  done,
+  onClick,
+}: {
+  n: number;
+  label: string;
+  active: boolean;
+  done: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? "step" : undefined}
+      className={`flex items-center gap-2 min-w-0 ${onClick ? "" : "pointer-events-none"}`}
+    >
+      <span
+        className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
+        style={{
+          backgroundColor: active || done ? "var(--color-primary-500)" : "var(--color-surface-secondary)",
+          color: active || done ? "#fff" : "var(--color-text-muted)",
+        }}
+      >
+        {done && !active ? <Icon name="check" size={13} strokeWidth={2.4} /> : n}
+      </span>
+      <span
+        className="text-[13px] font-semibold truncate"
+        style={{ color: active ? "var(--color-text-primary)" : "var(--color-text-muted)" }}
+      >
+        {label}
+      </span>
+    </button>
+  );
 }
 
 export function SetupPage() {
@@ -28,8 +76,22 @@ export function SetupPage() {
     dbUrl: "postgresql://user:password@localhost:5432/enterprise_chat",
   });
 
+  const engine = dbEngineLabel(config.dbUrl);
+  const engineKnown = engine !== "SGBD" && engine !== "Base de données";
+
   const handleChange = (key: keyof SetupConfig, value: string | boolean) => {
     setConfigState((prev) => ({ ...prev, [key]: value }));
+    setError(null);
+  };
+
+  const toggleTls = () => {
+    setConfigState((prev) => {
+      const next = !prev.ldapUseTls;
+      let port = prev.ldapPort;
+      if (next && prev.ldapPort === "389") port = "636";
+      if (!next && prev.ldapPort === "636") port = "389";
+      return { ...prev, ldapUseTls: next, ldapPort: port };
+    });
     setError(null);
   };
 
@@ -77,303 +139,229 @@ export function SetupPage() {
     }
   };
 
-  const inputClass =
-    "w-full px-3 py-2 rounded-lg text-sm outline-none border focus:ring-2 transition-all";
-  const inputStyle = {
-    backgroundColor: "var(--color-input-bg)",
-    color: "var(--color-text-primary)",
-    borderColor: "var(--color-border)",
-  };
-
   return (
-    <div
-      className="min-h-screen flex items-center justify-center p-4"
-      style={{ backgroundColor: "var(--color-surface-secondary)" }}
+    <AuthShell
+      wide
+      headline="Configuration initiale"
+      description="Reliez FiChat à l’infrastructure de First Trust : le serveur de données, puis l’annuaire Active Directory. Aucun compte local n’est créé."
+      features={[
+        "Détection automatique du SGBD à partir de l’URL",
+        "LDAP / Active Directory pour l’authentification",
+        "TLS optionnel (LDAPS, port 636)",
+      ]}
+      footer="Assistant d’installation · administrateur système"
+      aside={
+        <div
+          className="rounded-2xl p-4 space-y-3"
+          style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)" }}
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: "rgba(232,237,244,0.5)" }}>
+            Récapitulatif
+          </p>
+          {[
+            { icon: "database" as const, title: "Serveur de données", value: engineKnown ? engine : "En attente de l’URL" },
+            {
+              icon: "server" as const,
+              title: "Annuaire",
+              value: config.ldapHost.trim()
+                ? `${config.ldapHost}:${config.ldapPort}${config.ldapUseTls ? " · TLS" : ""}`
+                : "Non renseigné",
+            },
+            {
+              icon: "lock" as const,
+              title: "Identifiant LDAP",
+              value: config.ldapUserAttribute || "sAMAccountName",
+            },
+          ].map((row) => (
+            <div key={row.title} className="flex items-start gap-3">
+              <div
+                className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                style={{ background: "rgba(255,255,255,0.08)", color: "rgba(232,237,244,0.8)" }}
+              >
+                <Icon name={row.icon} size={14} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px]" style={{ color: "rgba(232,237,244,0.5)" }}>{row.title}</p>
+                <p className="text-[13px] font-medium truncate text-white">{row.value}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      }
     >
       <div
-        className="w-full max-w-md rounded-2xl shadow-xl p-8 animate-fade-in"
-        style={{ backgroundColor: "var(--color-surface)" }}
+        className="rounded-2xl p-8"
+        style={{
+          backgroundColor: "var(--color-surface)",
+          border: "1px solid var(--color-border)",
+          boxShadow: "0 24px 48px -20px rgba(15,23,42,0.16)",
+        }}
       >
-        {/* Logo */}
-        <div className="flex flex-col items-center mb-8">
-          <div
-            className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
-            style={{ backgroundColor: "var(--color-primary-500)" }}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="w-8 h-8 text-white"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
-              />
-            </svg>
-          </div>
-          <h1 className="text-2xl font-bold" style={{ color: "var(--color-text-primary)" }}>
-            FiChat
-          </h1>
-          <p className="text-sm mt-1" style={{ color: "var(--color-text-muted)" }}>
-            Configuration initiale
-          </p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] mb-1.5" style={{ color: "var(--color-primary-600)" }}>
+          Installation
+        </p>
+        <h2 className="text-[20px] font-semibold tracking-tight" style={{ color: "var(--color-text-primary)" }}>
+          {step === "db" ? "Serveur de données" : "Active Directory"}
+        </h2>
+        <p className="text-[13px] mt-1 mb-6" style={{ color: "var(--color-text-muted)" }}>
+          {step === "db"
+            ? "Collez l’URL de connexion. Le moteur affiché est lu depuis le schéma, pas figé dans l’application."
+            : "Paramètres de l’annuaire d’entreprise pour l’authentification des collaborateurs."}
+        </p>
+
+        <div className="flex items-center mb-7">
+          <StepDot n={1} label="Données" active={step === "db"} done={dbOk} onClick={dbOk ? () => { setStep("db"); setError(null); } : undefined} />
+          <div className="flex-1 h-px mx-3" style={{ backgroundColor: "var(--color-border)" }} />
+          <StepDot n={2} label="Annuaire" active={step === "ldap"} done={false} />
         </div>
 
-        {/* Steps indicator */}
-        <div className="flex items-center mb-6">
-          <div className="flex items-center gap-2">
-            <div
-              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-              style={{
-                backgroundColor:
-                  step === "db" || dbOk
-                    ? "var(--color-primary-500)"
-                    : "var(--color-surface-secondary)",
-              }}
-            >
-              {dbOk ? (
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                </svg>
-              ) : "1"}
-            </div>
-            <span
-              className="text-sm font-medium"
-              style={{
-                color:
-                  step === "db"
-                    ? "var(--color-primary-500)"
-                    : "var(--color-text-muted)",
-              }}
-            >
-              Base de données
-            </span>
-          </div>
-
-          <div
-            className="flex-1 h-px mx-3"
-            style={{ backgroundColor: "var(--color-border)" }}
-          />
-
-          <div className="flex items-center gap-2">
-            <div
-              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
-              style={{
-                backgroundColor:
-                  step === "ldap"
-                    ? "var(--color-primary-500)"
-                    : "var(--color-surface-secondary)",
-                color:
-                  step === "ldap" ? "white" : "var(--color-text-muted)",
-              }}
-            >
-              2
-            </div>
-            <span
-              className="text-sm font-medium"
-              style={{
-                color:
-                  step === "ldap"
-                    ? "var(--color-primary-500)"
-                    : "var(--color-text-muted)",
-              }}
-            >
-              Active Directory
-            </span>
-          </div>
-        </div>
-
-        {/* ─── Step 1 : Database ─────────────────────────────────────────── */}
         {step === "db" && (
           <div className="space-y-4">
-            <div>
-              <label
-                className="block text-sm font-medium mb-1"
-                style={{ color: "var(--color-text-secondary)" }}
-              >
-                URL de connexion PostgreSQL
-              </label>
+            <AuthField
+              label="URL de connexion"
+              icon="database"
+              htmlFor="setup-db-url"
+              hint={
+                <>
+                  Moteur détecté : <strong style={{ color: "var(--color-text-secondary)" }}>{engine}</strong>
+                  {" · "}ex. postgresql://utilisateur:motdepasse@hôte:5432/base
+                </>
+              }
+            >
               <input
+                id="setup-db-url"
                 type="text"
                 value={config.dbUrl}
                 onChange={(e) => handleChange("dbUrl", e.target.value)}
-                className={inputClass}
-                style={inputStyle}
                 placeholder="postgresql://user:pass@host:5432/enterprise_chat"
                 autoFocus
+                spellCheck={false}
               />
-              <p className="text-xs mt-1" style={{ color: "var(--color-text-muted)" }}>
-                Format : <code>postgresql://utilisateur:motdepasse@hôte:port/base</code>
-              </p>
-            </div>
+            </AuthField>
 
-            {error && (
-              <div
-                className="rounded-lg p-3 text-sm flex items-start gap-2"
-                style={{ backgroundColor: "rgba(220,38,38,0.08)", color: "#dc2626" }}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                {error}
-              </div>
-            )}
+            {error && <AuthAlert>{error}</AuthAlert>}
 
-            <button
+            <AuthPrimaryButton
+              type="button"
               onClick={testDb}
               disabled={loading || !config.dbUrl.trim()}
-              className="w-full py-2.5 rounded-lg font-medium text-white text-sm transition-opacity disabled:opacity-60"
-              style={{ backgroundColor: "var(--color-primary-500)" }}
             >
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
+                  <Icon name="loader" size={16} className="animate-spin" />
                   Test de connexion…
                 </span>
               ) : (
-                "Tester et continuer →"
+                "Tester et continuer"
               )}
-            </button>
+            </AuthPrimaryButton>
           </div>
         )}
 
-        {/* ─── Step 2 : LDAP ─────────────────────────────────────────────── */}
         {step === "ldap" && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium mb-1" style={{ color: "var(--color-text-secondary)" }}>
-                  Serveur LDAP / AD
-                </label>
-                <input
-                  type="text"
-                  value={config.ldapHost}
-                  onChange={(e) => handleChange("ldapHost", e.target.value)}
-                  className={inputClass}
-                  style={inputStyle}
-                  placeholder="ad.entreprise.com"
-                  autoFocus
-                />
+            <div className="grid grid-cols-3 gap-3">
+              <div className="col-span-2">
+                <AuthField label="Serveur LDAP / AD" icon="server" htmlFor="setup-ldap-host">
+                  <input
+                    id="setup-ldap-host"
+                    type="text"
+                    value={config.ldapHost}
+                    onChange={(e) => handleChange("ldapHost", e.target.value)}
+                    placeholder="ad.entreprise.com"
+                    autoFocus
+                    spellCheck={false}
+                  />
+                </AuthField>
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1" style={{ color: "var(--color-text-secondary)" }}>
-                  Port
-                </label>
+              <AuthField label="Port" htmlFor="setup-ldap-port">
                 <input
+                  id="setup-ldap-port"
                   type="number"
                   value={config.ldapPort}
                   onChange={(e) => handleChange("ldapPort", e.target.value)}
-                  className={inputClass}
-                  style={inputStyle}
                   min={1}
                   max={65535}
                 />
-              </div>
+              </AuthField>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: "var(--color-text-secondary)" }}>
-                Base DN
-              </label>
+            <AuthField
+              label="Base DN"
+              icon="globe"
+              htmlFor="setup-ldap-dn"
+              hint="Chemin LDAP racine du domaine, par ex. DC=entreprise,DC=com"
+            >
               <input
+                id="setup-ldap-dn"
                 type="text"
                 value={config.ldapBaseDn}
                 onChange={(e) => handleChange("ldapBaseDn", e.target.value)}
-                className={inputClass}
-                style={inputStyle}
                 placeholder="DC=entreprise,DC=com"
+                spellCheck={false}
               />
-              <p className="text-xs mt-1" style={{ color: "var(--color-text-muted)" }}>
-                Le chemin LDAP racine de votre domaine Active Directory.
-              </p>
-            </div>
+            </AuthField>
 
-            <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: "var(--color-text-secondary)" }}>
-                Attribut d'identifiant
-              </label>
+            <AuthField
+              label="Attribut d'identifiant"
+              icon="user"
+              htmlFor="setup-ldap-attr"
+              hint={
+                <>
+                  Généralement <code>sAMAccountName</code> (Windows) ou <code>uid</code> (OpenLDAP).
+                </>
+              }
+            >
               <input
+                id="setup-ldap-attr"
                 type="text"
                 value={config.ldapUserAttribute}
                 onChange={(e) => handleChange("ldapUserAttribute", e.target.value)}
-                className={inputClass}
-                style={inputStyle}
                 placeholder="sAMAccountName"
+                spellCheck={false}
               />
-              <p className="text-xs mt-1" style={{ color: "var(--color-text-muted)" }}>
-                Généralement <code>sAMAccountName</code> (Windows) ou <code>uid</code> (OpenLDAP).
-              </p>
-            </div>
+            </AuthField>
 
-            <div
-              className="flex items-center gap-3 p-3 rounded-lg"
-              style={{ backgroundColor: "var(--color-surface-secondary)" }}
-            >
-              <input
-                type="checkbox"
-                id="tls"
-                checked={config.ldapUseTls}
-                onChange={(e) => handleChange("ldapUseTls", e.target.checked)}
-                className="w-4 h-4 rounded"
-                style={{ accentColor: "var(--color-primary-500)" }}
-              />
-              <label htmlFor="tls" className="text-sm cursor-pointer select-none" style={{ color: "var(--color-text-secondary)" }}>
-                <strong>TLS / LDAPS</strong> — Chiffrer la connexion LDAP (port 636)
-              </label>
-            </div>
+            <AuthToggle
+              on={config.ldapUseTls}
+              onChange={toggleTls}
+              label="TLS / LDAPS"
+              description="Chiffrer la connexion à l’annuaire (port 636 recommandé)"
+            />
 
-            {error && (
-              <div
-                className="rounded-lg p-3 text-sm flex items-start gap-2"
-                style={{ backgroundColor: "rgba(220,38,38,0.08)", color: "#dc2626" }}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                {error}
-              </div>
-            )}
+            {error && <AuthAlert>{error}</AuthAlert>}
 
             <div className="flex gap-2 pt-1">
               <button
+                type="button"
                 onClick={() => { setStep("db"); setError(null); }}
-                className="flex-1 py-2.5 rounded-lg font-medium text-sm border transition-colors"
+                className="h-11 px-4 rounded-xl font-semibold text-sm border shrink-0"
                 style={{
                   borderColor: "var(--color-border)",
                   color: "var(--color-text-secondary)",
+                  backgroundColor: "var(--color-surface)",
                 }}
               >
-                ← Retour
+                Retour
               </button>
-              <button
+              <AuthPrimaryButton
+                type="button"
                 onClick={saveConfig}
                 disabled={loading || !config.ldapHost.trim() || !config.ldapBaseDn.trim()}
-                className="flex-1 py-2.5 rounded-lg font-medium text-white text-sm transition-opacity disabled:opacity-60"
-                style={{ backgroundColor: "var(--color-primary-500)" }}
               >
                 {loading ? (
                   <span className="flex items-center justify-center gap-2">
-                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
+                    <Icon name="loader" size={16} className="animate-spin" />
                     Enregistrement…
                   </span>
                 ) : (
-                  "Terminer la configuration ✓"
+                  "Terminer la configuration"
                 )}
-              </button>
+              </AuthPrimaryButton>
             </div>
           </div>
         )}
       </div>
-    </div>
+    </AuthShell>
   );
 }

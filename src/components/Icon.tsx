@@ -7,7 +7,8 @@ export type IconName =
   | "loader" | "download" | "reply" | "logOut" | "pencil" | "trash" | "pin" | "star"
   | "share" | "copy" | "alert" | "check" | "image" | "file" | "video" | "more"
   | "mail" | "globe" | "checkCircle" | "camera" | "phone" | "type"
-  | "palette" | "laptop" | "contrast" | "moonStar" | "refresh" | "checkBadge";
+  | "palette" | "laptop" | "contrast" | "moonStar" | "refresh" | "checkBadge"
+  | "database" | "server";
 
 const GLYPHS: Record<IconName, ReactNode> = {
   search: (
@@ -319,6 +320,21 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <path d="M21 3v5h-5" />
       <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
       <path d="M8 16H3v5" />
+    </>
+  ),
+  database: (
+    <>
+      <ellipse cx="12" cy="5" rx="9" ry="3" />
+      <path d="M3 5V19A9 3 0 0 0 21 19V5" />
+      <path d="M3 12A9 3 0 0 0 21 12" />
+    </>
+  ),
+  server: (
+    <>
+      <rect width="20" height="8" x="2" y="2" rx="2" ry="2" />
+      <rect width="20" height="8" x="2" y="14" rx="2" ry="2" />
+      <line x1="6" x2="6.01" y1="6" y2="6" />
+      <line x1="6" x2="6.01" y1="18" y2="18" />
     </>
   ),
 };

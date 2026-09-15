@@ -1,10 +1,11 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useLayoutEffect, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import data from "@emoji-mart/data";
 import Picker from "@emoji-mart/react";
 import { useThemeStore } from "@/store/themeStore";
 import type { MessageDto } from "@/services/chatService";
 import { formatFileSize, isImage, isVideo, isAudio, generateThumbnail } from "@/utils/fileUtils";
-import { Icon } from "@/components/Icon";
+import { Icon, type IconName } from "@/components/Icon";
 
 interface PendingFile {
     file: File;
@@ -34,43 +35,69 @@ function getDocAccent(ext: string): { bg: string; fg: string; label: string } {
 
 // ─── Attachment type menu (WhatsApp style) ────────────────────────────────────
 interface AttachmentMenuItem {
-    icon: React.ReactNode;
+    icon: IconName;
     label: string;
-    color: string;
+    hint: string;
     accept: string;
     capture?: string;
 }
 
 const ATTACHMENT_ITEMS: AttachmentMenuItem[] = [
     {
-        icon: <Icon name="file" size={18} />,
+        icon: "file",
         label: "Document",
-        color: "#6366F1",
+        hint: "PDF, Word, Excel, ZIP…",
         accept: ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar",
     },
     {
-        icon: <Icon name="image" size={18} />,
+        icon: "image",
         label: "Photos et vidéos",
-        color: "#0EA5E9",
+        hint: "Images, captures d’écran, films",
         accept: "image/*,video/*",
     },
     {
-        icon: <Icon name="mic" size={18} />,
+        icon: "mic",
         label: "Audio",
-        color: "#F59E0B",
+        hint: "Fichier son à partager",
         accept: "audio/*",
     },
 ];
 
-function AttachmentMenu({ onSelect, onClose }: {
-    onSelect: (item: AttachmentMenuItem) => void;
+function FloatingPanel({
+    anchorRef,
+    children,
+    onClose,
+}: {
+    anchorRef: RefObject<HTMLElement | null>;
+    children: ReactNode;
     onClose: () => void;
 }) {
-    const ref = useRef<HTMLDivElement>(null);
+    const panelRef = useRef<HTMLDivElement>(null);
+    const [pos, setPos] = useState({ bottom: 16, left: 16 });
+
+    useLayoutEffect(() => {
+        const place = () => {
+            const el = anchorRef.current;
+            if (!el) return;
+            const r = el.getBoundingClientRect();
+            const left = Math.max(12, Math.min(r.left, window.innerWidth - 372));
+            setPos({ bottom: window.innerHeight - r.top + 10, left });
+        };
+        place();
+        window.addEventListener("resize", place);
+        window.addEventListener("scroll", place, true);
+        return () => {
+            window.removeEventListener("resize", place);
+            window.removeEventListener("scroll", place, true);
+        };
+    }, [anchorRef]);
 
     useEffect(() => {
         const handler = (e: MouseEvent) => {
-            if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+            const t = e.target as Node;
+            if (panelRef.current?.contains(t)) return;
+            if (anchorRef.current?.contains(t)) return;
+            onClose();
         };
         const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
         document.addEventListener("mousedown", handler);
@@ -79,38 +106,98 @@ function AttachmentMenu({ onSelect, onClose }: {
             document.removeEventListener("mousedown", handler);
             document.removeEventListener("keydown", esc);
         };
-    }, [onClose]);
+    }, [onClose, anchorRef]);
 
-    return (
+    return createPortal(
         <div
-            ref={ref}
-            className="absolute bottom-14 left-0 z-50 rounded-2xl shadow-xl overflow-hidden py-2"
-            style={{
-                backgroundColor: "var(--color-surface)",
-                border: "1px solid var(--color-border)",
-                minWidth: 200,
-                animation: "slideUp 0.18s ease-out",
-            }}
+            ref={panelRef}
+            style={{ position: "fixed", bottom: pos.bottom, left: pos.left, zIndex: 80 }}
         >
-            {ATTACHMENT_ITEMS.map((item, idx) => (
-                <button
-                    key={idx}
-                    onClick={() => { onSelect(item); onClose(); }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left transition-colors"
-                    style={{ color: "var(--color-text-primary)" }}
-                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--color-surface-secondary)")}
-                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "")}
-                >
-                    {/* Colored circle icon */}
-                    <div
-                        className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                        style={{ backgroundColor: item.color, color: "#fff" }}
-                    >
-                        {item.icon}
-                    </div>
-                    <span className="font-medium">{item.label}</span>
+            {children}
+        </div>,
+        document.body,
+    );
+}
+
+function AttachmentMenu({ onSelect, onClose }: {
+    onSelect: (item: AttachmentMenuItem) => void;
+    onClose: () => void;
+}) {
+    return (
+        <div className="fichat-popover">
+            <div className="fichat-popover-head">
+                <div className="icon-well">
+                    <Icon name="paperclip" size={16} />
+                </div>
+                <div className="flex-1 min-w-0">
+                    <h3>Joindre un fichier</h3>
+                    <p>Stocké de façon sécurisée côté serveur</p>
+                </div>
+                <button type="button" className="icon-btn shrink-0" onClick={onClose} title="Fermer">
+                    <Icon name="x" size={15} />
                 </button>
-            ))}
+            </div>
+            <div className="fichat-attach-list">
+                {ATTACHMENT_ITEMS.map((item) => (
+                    <button
+                        key={item.label}
+                        type="button"
+                        onClick={() => { onSelect(item); onClose(); }}
+                        className="fichat-attach-item"
+                    >
+                        <div className="icon-well">
+                            <Icon name={item.icon} size={18} />
+                        </div>
+                        <span className="min-w-0">
+                            <span className="title block">{item.label}</span>
+                            <span className="hint block">{item.hint}</span>
+                        </span>
+                        <Icon name="chevronRight" size={16} style={{ color: "var(--color-text-muted)" }} className="shrink-0 ml-auto" />
+                    </button>
+                ))}
+            </div>
+            <p className="fichat-popover-foot">PDF, images, vidéos, vocaux et documents bureautiques.</p>
+        </div>
+    );
+}
+
+function EmojiPanel({
+    isDark,
+    onSelect,
+    onClose,
+}: {
+    isDark: boolean;
+    onSelect: (emoji: { native?: string }) => void;
+    onClose: () => void;
+}) {
+    return (
+        <div className="fichat-popover is-emoji fichat-emoji-panel">
+            <div className="fichat-popover-head">
+                <div className="icon-well">
+                    <Icon name="smile" size={16} />
+                </div>
+                <div className="flex-1 min-w-0">
+                    <h3>Émojis</h3>
+                    <p>Rechercher ou parcourir les catégories</p>
+                </div>
+                <button type="button" className="icon-btn shrink-0" onClick={onClose} title="Fermer">
+                    <Icon name="x" size={15} />
+                </button>
+            </div>
+            <div onMouseDown={(e) => e.preventDefault()}>
+                <Picker
+                    data={data}
+                    onEmojiSelect={onSelect}
+                    theme={isDark ? "dark" : "light"}
+                    locale="fr"
+                    previewPosition="none"
+                    skinTonePosition="search"
+                    navPosition="bottom"
+                    searchPosition="sticky"
+                    maxFrequentRows={1}
+                    perLine={8}
+                />
+            </div>
         </div>
     );
 }
@@ -124,21 +211,20 @@ function PendingFilePreview({ pendingFile, onRemove }: { pendingFile: PendingFil
 
     const RemoveBtn = () => (
         <button
+            type="button"
             onClick={onRemove}
-            className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center z-10 shadow-md"
-            style={{ backgroundColor: "rgba(0,0,0,0.6)" }}
+            className="absolute top-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center z-10"
+            style={{ backgroundColor: "rgba(15,23,42,0.72)", color: "#fff" }}
             title="Retirer"
         >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <Icon name="x" size={14} />
         </button>
     );
 
     // ── Image ──
     if (isImage(mime) && thumbnail) {
         return (
-            <div className="relative mb-2 rounded-2xl overflow-hidden border shadow-sm" style={{ borderColor: "var(--color-border)", display: "inline-block", maxWidth: 260 }}>
+            <div className="relative mb-0 rounded-2xl overflow-hidden border" style={{ borderColor: "var(--color-border)", display: "inline-block", maxWidth: 260 }}>
                 <RemoveBtn />
                 <img src={thumbnail} alt={file.name} className="block object-cover" style={{ maxHeight: 200, minHeight: 80 }} />
                 <div className="px-3 py-1.5 flex items-center gap-2" style={{ backgroundColor: "var(--color-surface-secondary)" }}>
@@ -231,6 +317,8 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
     const [fileLoading, setFileLoading] = useState(false);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const attachBtnRef = useRef<HTMLButtonElement>(null);
+    const emojiBtnRef = useRef<HTMLButtonElement>(null);
     const [fileAccept, setFileAccept] = useState("*/*");
     const [fileCapture, setFileCapture] = useState<string | undefined>(undefined);
     const [recording, setRecording] = useState(false);
@@ -247,6 +335,7 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
     const { theme } = useThemeStore();
 
     const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    const [focused, setFocused] = useState(false);
 
     const canSend = !disabled && (text.trim().length > 0 || pendingFile !== null);
 
@@ -436,55 +525,52 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
     };
 
     return (
-        <div className="shrink-0 px-3 py-2" style={{ backgroundColor: "var(--color-header-bg)" }}>
-
-
-            {/* ── Reply preview ──────────────────────────────────────────────────── */}
-            {replyTo && (
-                <div
-                    className="flex items-center gap-2 mb-2 px-3 py-2 rounded-lg border-l-4"
-                    style={{ backgroundColor: "var(--color-surface-secondary)", borderColor: "var(--color-primary-500)" }}
-                >
-                    <div className="flex-1 min-w-0">
-            <span className="text-xs font-semibold block" style={{ color: "var(--color-primary-500)" }}>
-              Répondre à {replyTo.senderName ?? "Moi"}
-            </span>
-                        <span className="text-xs truncate block" style={{ color: "var(--color-text-muted)" }}>
-              {replyTo.attachments?.length ? `📎 ${replyTo.attachments[0].fileName}` : replyTo.content}
-            </span>
+        <div className="composer-wrap">
+            <div
+                className={`composer-card ${focused || showEmoji || showAttachMenu || recording ? "is-focused" : ""} ${disabled ? "is-disabled" : ""}`}
+            >
+                {replyTo && (
+                    <div className="composer-reply">
+                        <div className="flex-1 min-w-0">
+                            <span className="text-[11px] font-semibold block" style={{ color: "var(--color-primary-500)" }}>
+                                Répondre à {replyTo.senderName ?? "Moi"}
+                            </span>
+                            <span className="text-[12px] truncate block" style={{ color: "var(--color-text-muted)" }}>
+                                {replyTo.attachments?.length ? `📎 ${replyTo.attachments[0].fileName}` : replyTo.content}
+                            </span>
+                        </div>
+                        <button type="button" onClick={onCancelReply} className="icon-btn shrink-0" style={{ width: 28, height: 28 }} title="Annuler la réponse">
+                            <Icon name="x" size={14} />
+                        </button>
                     </div>
-                    <button onClick={onCancelReply} className="icon-btn shrink-0" style={{ width: 28, height: 28 }}>
-                        <Icon name="x" size={14} />
-                    </button>
-                </div>
-            )}
+                )}
 
-            {/* ── Pending file preview ──────────────────────────────────────────── */}
-            {pendingFile && (
-                <PendingFilePreview pendingFile={pendingFile} onRemove={() => { setPendingFile(null); inputRef.current?.focus(); }} />
-            )}
+                {pendingFile && (
+                    <div className="composer-attach">
+                        <PendingFilePreview pendingFile={pendingFile} onRemove={() => { setPendingFile(null); inputRef.current?.focus(); }} />
+                    </div>
+                )}
 
-            {recordError && (
-                <p className="text-xs mb-1 px-1" style={{ color: "#ef4444" }}>{recordError}</p>
-            )}
+                {recordError && (
+                    <p className="text-[12px] px-3.5 pt-2" style={{ color: "#ef4444" }}>{recordError}</p>
+                )}
 
-            {recording ? (
-                <div className="flex items-center gap-2">
-                    <button
-                        type="button"
-                        onClick={cancelRecording}
-                        className="icon-btn shrink-0"
-                        style={{ color: "#ef4444" }}
-                        title="Annuler"
-                    >
-                        <Icon name="trash" size={18} />
-                    </button>
-                    <div className="flex-1 flex items-center gap-3 rounded-2xl px-3 py-2" style={{ backgroundColor: "var(--color-surface)" }}>
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0 animate-pulse" style={{ backgroundColor: "#ef4444" }} />
-                        <span className="text-sm tabular-nums font-medium" style={{ color: "var(--color-text-primary)" }}>
+                {recording ? (
+                    <div className="composer-record">
+                        <button
+                            type="button"
+                            onClick={cancelRecording}
+                            className="icon-btn shrink-0"
+                            style={{ color: "#ef4444" }}
+                            title="Annuler"
+                        >
+                            <Icon name="trash" size={17} />
+                        </button>
+                        <span className="w-2 h-2 rounded-full shrink-0 animate-pulse" style={{ backgroundColor: "#ef4444" }} />
+                        <span className="text-[13px] tabular-nums font-semibold" style={{ color: "var(--color-text-primary)" }}>
                             {Math.floor(recordSecs / 60)}:{(recordSecs % 60).toString().padStart(2, "0")}
                         </span>
-                        <div className="flex-1 flex items-end gap-px h-7">
+                        <div className="flex-1 flex items-end gap-px h-7 min-w-0">
                             {levels.map((h, i) => (
                                 <div
                                     key={i}
@@ -493,115 +579,109 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
                                 />
                             ))}
                         </div>
-                    </div>
-                    <button
-                        type="button"
-                        onClick={() => finishRecording(true)}
-                        className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-                        style={{ backgroundColor: "var(--color-primary-500)", color: "#fff" }}
-                        title="Envoyer le message vocal"
-                    >
-                        <Icon name="send" size={18} />
-                    </button>
-                </div>
-            ) : (
-            <div className="flex items-end gap-2">
-                <div className="flex-1 flex items-end gap-1 rounded-xl px-2 py-1.5" style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
-
-                    {/* Attachment button with popup menu */}
-                    <div className="relative self-end pb-0.5">
                         <button
-                            onClick={() => { setShowAttachMenu((v) => !v); setShowEmoji(false); }}
-                            disabled={disabled || fileLoading}
-                            className="w-8 h-8 flex items-center justify-center rounded-full transition-all disabled:opacity-40"
-                            style={{
-                                color: showAttachMenu ? "var(--color-primary-500)" : "var(--color-text-muted)",
-                                transform: showAttachMenu ? "rotate(45deg)" : "rotate(0deg)",
-                                transition: "transform 0.2s ease, color 0.15s",
-                            }}
-                            title="Joindre"
                             type="button"
+                            onClick={() => finishRecording(true)}
+                            className="composer-send"
+                            title="Envoyer le message vocal"
                         >
-                            {fileLoading ? (
-                                <Icon name="loader" size={18} className="animate-spin" />
-                            ) : (
-                                <Icon name="plus" size={18} />
-                            )}
+                            <Icon name="send" size={16} />
                         </button>
-
-                        {showAttachMenu && (
-                            <AttachmentMenu
-                                onSelect={handleAttachSelect}
-                                onClose={() => setShowAttachMenu(false)}
-                            />
-                        )}
                     </div>
-
-                    {/* Emoji button */}
-                    <div className="relative self-end pb-0.5">
-                        <button
-                            onClick={() => { setShowEmoji((v) => !v); setShowAttachMenu(false); }}
-                            className="w-8 h-8 flex items-center justify-center rounded-full transition-colors"
-                            style={{ color: showEmoji ? "var(--color-primary-500)" : "var(--color-text-muted)" }}
-                            title="Émojis"
-                            type="button"
-                        >
-                            <Icon name="smile" size={18} />
-                        </button>
-                        {showEmoji && (
-                            <div className="absolute bottom-10 left-0 z-50" onMouseDown={(e) => e.preventDefault()}>
-                                <Picker data={data} onEmojiSelect={addEmoji} theme={isDark ? "dark" : "light"} locale="fr" previewPosition="none" skinTonePosition="none" />
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Textarea */}
-                    <textarea
-                        ref={inputRef}
-                        value={text}
-                        onChange={handleChange}
-                        onKeyDown={handleKey}
-                        disabled={disabled}
-                        rows={1}
-                        placeholder={pendingFile ? "Ajouter une légende… (optionnel)" : "Écrivez un message…"}
-                        className="flex-1 bg-transparent text-sm outline-none resize-none leading-relaxed py-1.5"
-                        style={{ color: "var(--color-text-primary)", maxHeight: 120 }}
-                    />
-                </div>
-
-                {/* Send or microphone */}
-                {canSend ? (
-                <button
-                    onClick={send}
-                    disabled={!canSend}
-                    className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all"
-                    style={{
-                        backgroundColor: "var(--color-primary-500)",
-                        color: "#fff",
-                    }}
-                    title="Envoyer (Entrée)"
-                >
-                    <Icon name="send" size={18} />
-                </button>
                 ) : (
-                <button
-                    type="button"
-                    onClick={startRecording}
-                    disabled={disabled}
-                    className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all disabled:opacity-40"
-                    style={{
-                        backgroundColor: "var(--color-primary-500)",
-                        color: "#fff",
-                    }}
-                    title="Message vocal"
-                >
-                    <Icon name="mic" size={18} />
-                </button>
+                    <>
+                        <textarea
+                            ref={inputRef}
+                            value={text}
+                            onChange={handleChange}
+                            onKeyDown={handleKey}
+                            onFocus={() => setFocused(true)}
+                            onBlur={() => setFocused(false)}
+                            disabled={disabled}
+                            rows={1}
+                            placeholder={pendingFile ? "Ajouter une légende… (optionnel)" : "Écrivez un message…"}
+                            className="composer-field"
+                            style={{ maxHeight: 140 }}
+                        />
+
+                        <div className="composer-toolbar">
+                            <button
+                                ref={attachBtnRef}
+                                type="button"
+                                onClick={() => { setShowAttachMenu((v) => !v); setShowEmoji(false); }}
+                                disabled={disabled || fileLoading}
+                                className={`composer-tool ${showAttachMenu ? "is-on" : ""}`}
+                                title="Joindre un fichier"
+                            >
+                                {fileLoading ? (
+                                    <Icon name="loader" size={18} className="animate-spin" />
+                                ) : (
+                                    <Icon name="paperclip" size={18} />
+                                )}
+                            </button>
+                            {showAttachMenu && (
+                                <FloatingPanel
+                                    anchorRef={attachBtnRef}
+                                    onClose={() => setShowAttachMenu(false)}
+                                >
+                                    <AttachmentMenu
+                                        onSelect={handleAttachSelect}
+                                        onClose={() => setShowAttachMenu(false)}
+                                    />
+                                </FloatingPanel>
+                            )}
+
+                            <button
+                                ref={emojiBtnRef}
+                                type="button"
+                                onClick={() => { setShowEmoji((v) => !v); setShowAttachMenu(false); }}
+                                className={`composer-tool ${showEmoji ? "is-on" : ""}`}
+                                title="Émojis"
+                            >
+                                <Icon name="smile" size={18} />
+                            </button>
+                            {showEmoji && (
+                                <FloatingPanel
+                                    anchorRef={emojiBtnRef}
+                                    onClose={() => setShowEmoji(false)}
+                                >
+                                    <EmojiPanel
+                                        isDark={isDark}
+                                        onSelect={addEmoji}
+                                        onClose={() => setShowEmoji(false)}
+                                    />
+                                </FloatingPanel>
+                            )}
+
+                            <span className="composer-hint">
+                                {canSend ? "Entrée pour envoyer" : "Maj+Entrée : nouvelle ligne"}
+                            </span>
+
+                            {canSend ? (
+                                <button
+                                    type="button"
+                                    onClick={send}
+                                    className="composer-send"
+                                    title="Envoyer (Entrée)"
+                                >
+                                    <Icon name="send" size={16} />
+                                </button>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={startRecording}
+                                    disabled={disabled}
+                                    className="composer-send is-mic"
+                                    title="Message vocal"
+                                >
+                                    <Icon name="mic" size={16} />
+                                </button>
+                            )}
+                        </div>
+                    </>
                 )}
             </div>
-            )}
 
-            {/* Hidden file input */}
             <input
                 ref={fileInputRef}
                 type="file"
@@ -610,13 +690,6 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
                 className="hidden"
                 onChange={handleFileChange}
             />
-
-            <style>{`
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(8px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
         </div>
     );
 }

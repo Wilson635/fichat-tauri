@@ -2,7 +2,9 @@ import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
 import { authService } from "@/services/authService";
+import { isTauri } from "@/services/chatService";
 import { Icon } from "@/components/Icon";
+import { AuthAlert, AuthField, AuthPrimaryButton, AuthShell } from "@/components/AuthShell";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -13,6 +15,7 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [attempts, setAttempts] = useState(0);
+  const [capsLock, setCapsLock] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -42,128 +45,114 @@ export function LoginPage() {
   };
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center p-6"
-      style={{
-        background:
-          "radial-gradient(900px 500px at 10% -10%, rgba(0,168,132,0.16), transparent 50%), radial-gradient(700px 400px at 100% 100%, rgba(15,23,42,0.08), transparent 50%), var(--color-surface-secondary)",
-      }}
+    <AuthShell
+      headline="Bienvenue sur FiChat"
+      description="Messagerie interne de First Trust. Connectez-vous avec votre identifiant Windows pour rejoindre vos discussions, groupes et fichiers d’équipe."
+      features={[
+        "Discussions privées et groupes d’équipe",
+        "Partage de documents, images et vocaux",
+        "Alertes prioritaires et mode Ne pas déranger",
+        "Authentification Active Directory, sans compte séparé",
+      ]}
+      footer={
+        isTauri()
+          ? "Application de bureau Windows · LDAP / Active Directory"
+          : "Aperçu web · LDAP / Active Directory"
+      }
     >
       <div
-        className="w-full max-w-[400px] rounded-2xl overflow-hidden animate-fade-in"
+        className="rounded-2xl p-8"
         style={{
           backgroundColor: "var(--color-surface)",
           border: "1px solid var(--color-border)",
-          boxShadow: "0 24px 48px -16px rgba(15,23,42,0.18)",
+          boxShadow: "0 24px 48px -20px rgba(15,23,42,0.16)",
         }}
       >
-        <div className="p-9">
-          <div className="flex flex-col items-center mb-8">
-            <div
-              className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
-              style={{ backgroundColor: "var(--color-primary-500)" }}
-            >
-              <Icon name="message" size={26} style={{ color: "#fff" }} strokeWidth={1.8} />
-            </div>
-            <h1 className="text-[22px] font-semibold tracking-tight" style={{ color: "var(--color-text-primary)" }}>
-              FiChat
-            </h1>
-            <p className="text-[13px] mt-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>
-              Connexion Active Directory
-            </p>
-          </div>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] mb-1.5" style={{ color: "var(--color-primary-600)" }}>
+          Connexion
+        </p>
+        <h2 className="text-[20px] font-semibold tracking-tight" style={{ color: "var(--color-text-primary)" }}>
+          Identifiants du domaine
+        </h2>
+        <p className="text-[13px] mt-1 mb-7" style={{ color: "var(--color-text-muted)" }}>
+          Utilisez le même login que pour votre session Windows.
+        </p>
 
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-[12px] font-semibold mb-1.5" style={{ color: "var(--color-text-secondary)" }}>
-                Nom d'utilisateur
-              </label>
-              <div
-                className="flex items-center gap-2.5 rounded-xl px-3 h-11"
-                style={{ backgroundColor: "var(--color-input-bg)", border: "1px solid var(--color-border)" }}
-              >
-                <Icon name="user" size={16} style={{ color: "var(--color-text-muted)" }} />
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => {
-                    setUsername(e.target.value);
-                    setError(null);
-                  }}
-                  autoComplete="username"
-                  className="flex-1 bg-transparent text-sm outline-none"
-                  style={{ color: "var(--color-text-primary)" }}
-                  placeholder="Login Windows"
-                  disabled={isLoading}
-                  autoFocus
-                />
-              </div>
-            </div>
+        <form onSubmit={handleLogin} className="space-y-4">
+          <AuthField label="Nom d'utilisateur" icon="user" htmlFor="login-username">
+            <input
+              id="login-username"
+              type="text"
+              name="username"
+              value={username}
+              onChange={(e) => {
+                setUsername(e.target.value);
+                setError(null);
+              }}
+              autoComplete="username"
+              placeholder="Login Windows"
+              disabled={isLoading}
+              autoFocus
+            />
+          </AuthField>
 
-            <div>
-              <label className="block text-[12px] font-semibold mb-1.5" style={{ color: "var(--color-text-secondary)" }}>
-                Mot de passe
-              </label>
-              <div
-                className="flex items-center gap-2.5 rounded-xl px-3 h-11"
-                style={{ backgroundColor: "var(--color-input-bg)", border: "1px solid var(--color-border)" }}
-              >
-                <Icon name="lock" size={16} style={{ color: "var(--color-text-muted)" }} />
-                <input
-                  type={showPass ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    setError(null);
-                  }}
-                  autoComplete="current-password"
-                  className="flex-1 bg-transparent text-sm outline-none"
-                  style={{ color: "var(--color-text-primary)" }}
-                  placeholder="••••••••"
-                  disabled={isLoading}
-                />
-                <button type="button" onClick={() => setShowPass(!showPass)} className="shrink-0" tabIndex={-1} aria-label={showPass ? "Masquer" : "Afficher"}>
-                  <Icon name={showPass ? "eyeOff" : "eye"} size={16} style={{ color: "var(--color-text-muted)" }} />
-                </button>
-              </div>
-            </div>
-
-            {error && (
-              <div className="rounded-xl p-3 text-[13px] flex items-start gap-2" style={{ backgroundColor: "rgba(220,38,38,0.08)", color: "#dc2626" }} role="alert">
-                <Icon name="alert" size={16} className="mt-0.5 shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            {attempts >= 3 && !error && (
-              <p className="text-xs text-center" style={{ color: "var(--color-text-muted)" }}>
-                Trop de tentatives ? Contactez votre administrateur réseau.
-              </p>
-            )}
-
+          <AuthField
+            label="Mot de passe"
+            icon="lock"
+            htmlFor="login-password"
+            hint={capsLock ? "Verr. maj. activé" : undefined}
+          >
+            <input
+              id="login-password"
+              type={showPass ? "text" : "password"}
+              name="password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setError(null);
+              }}
+              onKeyUp={(e) => setCapsLock(e.getModifierState("CapsLock"))}
+              onKeyDown={(e) => setCapsLock(e.getModifierState("CapsLock"))}
+              autoComplete="current-password"
+              placeholder="Mot de passe Windows"
+              disabled={isLoading}
+            />
             <button
-              type="submit"
-              disabled={isLoading || !username.trim() || !password}
-              className="w-full h-11 rounded-xl font-semibold text-white text-sm transition-opacity disabled:opacity-60 mt-1"
-              style={{ backgroundColor: "var(--color-primary-500)" }}
+              type="button"
+              onClick={() => setShowPass(!showPass)}
+              className="shrink-0"
+              tabIndex={-1}
+              aria-label={showPass ? "Masquer le mot de passe" : "Afficher le mot de passe"}
             >
-              {isLoading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <Icon name="loader" size={16} className="animate-spin" />
-                  Connexion…
-                </span>
-              ) : (
-                "Se connecter"
-              )}
+              <Icon name={showPass ? "eyeOff" : "eye"} size={16} style={{ color: "var(--color-text-muted)" }} />
             </button>
-          </form>
+          </AuthField>
 
-          <p className="text-center text-[11px] mt-7 flex items-center justify-center gap-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>
-            <Icon name="lock" size={12} />
-            Authentification LDAP sécurisée
-          </p>
-        </div>
+          {error && <AuthAlert>{error}</AuthAlert>}
+
+          {attempts >= 3 && (
+            <p className="text-[12px] text-center" style={{ color: "var(--color-text-muted)" }}>
+              Trop de tentatives ? Contactez votre administrateur réseau.
+            </p>
+          )}
+
+          <AuthPrimaryButton disabled={isLoading || !username.trim() || !password}>
+            {isLoading ? (
+              <span className="flex items-center justify-center gap-2">
+                <Icon name="loader" size={16} className="animate-spin" />
+                Connexion…
+              </span>
+            ) : (
+              "Se connecter"
+            )}
+          </AuthPrimaryButton>
+        </form>
+
+        <p className="text-center text-[11px] mt-6 flex items-center justify-center gap-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>
+          <Icon name="shield" size={12} />
+          Session chiffrée · identifiants non stockés localement
+        </p>
       </div>
-    </div>
+    </AuthShell>
   );
 }

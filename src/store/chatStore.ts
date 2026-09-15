@@ -42,6 +42,57 @@ interface ChatState {
 let wsUnsubscribe: (() => void) | null = null;
 let typingTimers: Record<string, ReturnType<typeof setTimeout>> = {};
 
+/** True when `local` is an optimistic temp that corresponds to `incoming`. */
+function isPendingMatch(local: MessageDto, incoming: MessageDto): boolean {
+  if (local.id >= 0) return false;
+  if (local.senderId !== incoming.senderId) return false;
+  if (local.conversationId !== incoming.conversationId) return false;
+  if (local.messageType !== incoming.messageType) return false;
+  if ((local.replyToId ?? null) !== (incoming.replyToId ?? null)) return false;
+  if (local.messageType === "text" || local.messageType === "system") {
+    return (local.content ?? "") === (incoming.content ?? "");
+  }
+  const localFile = local.attachments[0]?.fileName ?? "";
+  const incomingFile = incoming.attachments[0]?.fileName ?? "";
+  if (localFile && incomingFile) return localFile === incomingFile;
+  return (local.content ?? "") === (incoming.content ?? "");
+}
+
+/**
+ * Insert or replace a message without duplicating the optimistic bubble
+ * when the HTTP response and the WebSocket echo both arrive.
+ */
+function upsertMessage(
+  existing: MessageDto[],
+  incoming: MessageDto,
+  replaceTempId?: number,
+): MessageDto[] {
+  const result: MessageDto[] = [];
+  let placed = false;
+
+  for (const m of existing) {
+    if (m.id === incoming.id) {
+      if (!placed) {
+        result.push({ ...m, ...incoming, attachments: incoming.attachments?.length ? incoming.attachments : m.attachments });
+        placed = true;
+      }
+      continue;
+    }
+    const isTempToReplace =
+      !placed &&
+      (m.id === replaceTempId || isPendingMatch(m, incoming));
+    if (isTempToReplace) {
+      result.push(incoming);
+      placed = true;
+      continue;
+    }
+    result.push(m);
+  }
+
+  if (!placed) result.push(incoming);
+  return result;
+}
+
 export const useChatStore = create<ChatState>()((set, get) => ({
   conversations: [],
   messagesMap: {},
@@ -150,13 +201,10 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     try {
       const sent = await chatService.sendMessage(conversationId, content, "text", replyToId);
 
-      // Replace temp message with real persisted message
       set((s) => ({
         messagesMap: {
           ...s.messagesMap,
-          [conversationId]: (s.messagesMap[conversationId] ?? []).map((m) =>
-              m.id === tempId ? sent : m
-          ),
+          [conversationId]: upsertMessage(s.messagesMap[conversationId] ?? [], sent, tempId),
         },
       }));
 
@@ -271,9 +319,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       set((s) => ({
         messagesMap: {
           ...s.messagesMap,
-          [conversationId]: (s.messagesMap[conversationId] ?? []).map((m) =>
-              m.id === tempId ? sent : m
-          ),
+          [conversationId]: upsertMessage(s.messagesMap[conversationId] ?? [], sent, tempId),
         },
       }));
 
@@ -458,23 +504,21 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
         set((s) => {
           const existing = s.messagesMap[convId] ?? [];
+          const alreadyHad = existing.some((m) => m.id === msg.id);
+          const merged = upsertMessage(existing, msg);
 
-          // Mise à jour d'un message existant (édition ou suppression soft)
-          if (existing.some((m) => m.id === msg.id)) {
-            if (msg.isEdited || msg.isDeleted) {
-              return {
-                ...s,
-                messagesMap: {
-                  ...s.messagesMap,
-                  [convId]: existing.map((m) =>
-                    m.id === msg.id
-                      ? { ...m, content: msg.content, isEdited: msg.isEdited, isDeleted: msg.isDeleted }
-                      : m
-                  ),
-                },
-              };
-            }
-            return s; // doublon, ignorer
+          if (alreadyHad && (msg.isEdited || msg.isDeleted)) {
+            return {
+              ...s,
+              messagesMap: { ...s.messagesMap, [convId]: merged },
+            };
+          }
+
+          if (alreadyHad || merged.length === existing.length) {
+            return {
+              ...s,
+              messagesMap: { ...s.messagesMap, [convId]: merged },
+            };
           }
 
           const isActive = s.currentConversationId === convId;
@@ -494,7 +538,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           });
 
           return {
-            messagesMap: { ...s.messagesMap, [convId]: [...existing, msg] },
+            messagesMap: { ...s.messagesMap, [convId]: merged },
             conversations,
           };
         });
