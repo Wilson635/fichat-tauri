@@ -3,159 +3,209 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Contrôle de compte FiChat</title>
+  <title>Message prioritaire — FiChat</title>
   <style>
+    @font-face {
+      font-family: "Poppins";
+      font-style: normal;
+      font-weight: 500;
+      font-display: swap;
+      src: url("/fonts/poppins-500.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "Poppins";
+      font-style: normal;
+      font-weight: 600;
+      font-display: swap;
+      src: url("/fonts/poppins-600.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "Poppins";
+      font-style: normal;
+      font-weight: 700;
+      font-display: swap;
+      src: url("/fonts/poppins-700.woff2") format("woff2");
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
       width: 100%;
       height: 100%;
       overflow: hidden;
-      font-family: "Segoe UI", "Segoe UI Variable", Tahoma, sans-serif;
+      background: transparent;
+      font-family: "Poppins", "Segoe UI", sans-serif;
       user-select: none;
     }
-    body {
-      background: rgba(0, 0, 0, 0.62);
+    .scrim {
+      width: 100%;
+      height: 100%;
       display: flex;
       align-items: center;
       justify-content: center;
+      padding: 24px;
+      background: rgba(11, 18, 32, 0.22);
+      backdrop-filter: blur(22px) saturate(1.35);
+      -webkit-backdrop-filter: blur(22px) saturate(1.35);
     }
     .card {
-      width: min(520px, calc(100vw - 48px));
-      background: #f3f3f3;
-      color: #1a1a1a;
-      border: 1px solid #0078d4;
-      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+      width: min(440px, calc(100vw - 48px));
+      border-radius: 20px;
+      overflow: hidden;
+      background: rgba(15, 23, 42, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 28px 64px -18px rgba(15, 23, 42, 0.55);
+      color: #f1f5f9;
+      animation: rise 0.22s ease-out;
     }
-    .banner {
-      background: linear-gradient(180deg, #0078d4 0%, #005a9e 100%);
-      color: #fff;
-      padding: 14px 18px;
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(10px) scale(0.98); }
+      to { opacity: 1; transform: none; }
+    }
+    .head {
       display: flex;
       align-items: center;
       gap: 12px;
+      padding: 18px 18px 0;
     }
-    .shield {
-      width: 36px;
-      height: 36px;
+    .well {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       flex-shrink: 0;
+      background: rgba(239, 68, 68, 0.16);
+      color: #f87171;
     }
-    .banner h1 {
+    .well svg { width: 22px; height: 22px; }
+    .kicker {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #f87171;
+      background: rgba(239, 68, 68, 0.16);
+      padding: 3px 8px;
+      border-radius: 999px;
+    }
+    .brand {
+      margin-top: 5px;
       font-size: 15px;
       font-weight: 600;
-      letter-spacing: 0.01em;
+      letter-spacing: -0.02em;
     }
-    .banner p {
-      font-size: 12px;
-      opacity: 0.92;
+    .content { padding: 16px 18px 8px; }
+    .conv {
+      font-size: 15px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+    .sender {
       margin-top: 2px;
-    }
-    .body {
-      padding: 22px 22px 10px;
-      background: #fff;
-    }
-    .question {
-      font-size: 15px;
-      font-weight: 600;
-      margin-bottom: 14px;
-      color: #1b1b1b;
-    }
-    .meta {
       font-size: 12.5px;
-      color: #444;
-      margin-bottom: 14px;
-      line-height: 1.45;
+      color: #94a3b8;
     }
-    .meta strong { color: #111; }
     .msg {
-      background: #f6f8fa;
-      border: 1px solid #d0d7de;
-      border-left: 4px solid #d13438;
+      margin-top: 12px;
       padding: 12px 14px;
-      font-size: 14px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 13.5px;
       line-height: 1.5;
-      color: #222;
-      max-height: 180px;
+      color: #f8fafc;
+      max-height: 160px;
       overflow: auto;
       white-space: pre-wrap;
       word-break: break-word;
     }
-    .hint {
-      font-size: 11.5px;
-      color: #666;
-      margin-top: 12px;
-    }
     .actions {
       display: flex;
-      justify-content: flex-end;
       gap: 10px;
-      padding: 16px 18px 18px;
-      background: #f3f3f3;
-      border-top: 1px solid #e1e1e1;
+      padding: 8px 18px 10px;
     }
     button {
-      min-width: 108px;
-      height: 32px;
-      padding: 0 16px;
-      font-size: 13px;
+      flex: 1;
+      height: 40px;
+      border-radius: 12px;
       font-family: inherit;
-      border-radius: 2px;
+      font-size: 13px;
+      font-weight: 600;
       cursor: pointer;
     }
-    .btn-secondary {
-      background: #fff;
-      border: 1px solid #8a8a8a;
-      color: #1a1a1a;
+    .ghost {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: #e2e8f0;
     }
-    .btn-secondary:hover { background: #f6f6f6; }
-    .btn-primary {
-      background: #0078d4;
-      border: 1px solid #005a9e;
+    .ghost:hover { background: rgba(255, 255, 255, 0.12); }
+    .primary {
+      border: 0;
+      background: #00a884;
       color: #fff;
-      font-weight: 600;
     }
-    .btn-primary:hover { background: #006cbd; }
-    .btn-primary:focus, .btn-secondary:focus {
-      outline: 2px solid #005a9e;
-      outline-offset: 1px;
+    .primary:hover { background: #009878; }
+    button:focus-visible {
+      outline: 2px solid #00a884;
+      outline-offset: 2px;
+    }
+    .hint {
+      text-align: center;
+      font-size: 11px;
+      color: #94a3b8;
+      padding: 0 18px 16px;
     }
   </style>
 </head>
 <body>
-  <div class="card" role="dialog" aria-modal="true" aria-labelledby="uac-title">
-    <div class="banner">
-      <svg class="shield" viewBox="0 0 48 48" aria-hidden="true">
-        <path fill="#f7d354" d="M24 4l16 6v12c0 11.2-7.1 21.3-16 24C15.1 43.3 8 33.2 8 22V10l16-6z"/>
-        <path fill="#1b6ec2" d="M24 10.5l10 3.6V22c0 7.4-4.5 14.3-10 16.6-5.5-2.3-10-9.2-10-16.6v-7.9l10-3.6z"/>
-        <path fill="#fff" d="M22.2 29.4l-5.1-5.1 1.8-1.8 3.3 3.3 8-8 1.8 1.8z"/>
-      </svg>
-      <div>
-        <h1 id="uac-title">Contrôle de compte utilisateur</h1>
-        <p>FiChat demande votre attention</p>
+  <div class="scrim">
+    <div class="card" role="dialog" aria-modal="true" aria-labelledby="prio-title">
+      <div class="head">
+        <div class="well" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+            <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+          </svg>
+        </div>
+        <div>
+          <span class="kicker">Message prioritaire</span>
+          <p class="brand" id="prio-title">FiChat</p>
+        </div>
       </div>
-    </div>
-    <div class="body">
-      <p class="question">Voulez-vous consulter ce message prioritaire ?</p>
-      <p class="meta">
-        Programme : <strong>FiChat</strong><br />
-        Éditeur : <strong>First Trust</strong><br />
-        Conversation : <strong id="conv">…</strong>
-      </p>
-      <div class="msg" id="body">Chargement…</div>
-      <p class="hint">Cette fenêtre reste au premier plan et bloque l’écran jusqu’à votre confirmation.</p>
-    </div>
-    <div class="actions">
-      <button type="button" class="btn-secondary" id="btn-close">Non</button>
-      <button type="button" class="btn-primary" id="btn-open">Oui</button>
+      <div class="content">
+        <p class="conv" id="conv">Conversation</p>
+        <p class="sender" id="sender"></p>
+        <div class="msg" id="body">Chargement…</div>
+      </div>
+      <div class="actions">
+        <button type="button" class="ghost" id="btn-close">Ignorer</button>
+        <button type="button" class="primary" id="btn-open">Ouvrir la conversation</button>
+      </div>
+      <p class="hint">Entrée pour ouvrir · Échap pour ignorer</p>
     </div>
   </div>
   <script>
     let payload = { title: "FiChat", body: "", conversationId: null };
 
+    function splitBody(raw) {
+      const text = String(raw || "");
+      const i = text.indexOf(": ");
+      if (i > 0 && i < 80) {
+        return { sender: text.slice(0, i), content: text.slice(i + 2) };
+      }
+      return { sender: "", content: text };
+    }
+
     function render(data) {
       if (!data) return;
       payload = data;
       document.getElementById("conv").textContent = data.title || "Conversation";
-      document.getElementById("body").textContent = data.body || "";
+      const parts = splitBody(data.body);
+      const senderEl = document.getElementById("sender");
+      senderEl.textContent = parts.sender;
+      senderEl.style.display = parts.sender ? "" : "none";
+      document.getElementById("body").textContent = parts.content || data.body || "";
       document.getElementById("btn-open").focus();
     }
 

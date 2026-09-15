@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use once_cell::sync::Lazy;
+use tauri::window::{Color, Effect, EffectState, EffectsBuilder};
 use tauri::{Emitter, Listener, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_notification::NotificationExt;
 
@@ -130,10 +131,10 @@ pub async fn cmd_send_priority_notification(
         &label,
         WebviewUrl::App("priority-alert.html".into()),
     )
-    .title("Contrôle de compte FiChat")
+    .title("Message prioritaire — FiChat")
     .always_on_top(true)
     .decorations(false)
-    .transparent(false)
+    .transparent(true)
     .resizable(false)
     .minimizable(false)
     .maximizable(false)
@@ -142,10 +143,26 @@ pub async fn cmd_send_priority_notification(
     .focused(true)
     .visible(true)
     .shadow(false)
+    .effects(
+        EffectsBuilder::new()
+            .effect(Effect::Acrylic)
+            .effect(Effect::Blur)
+            .state(EffectState::Active)
+            .color(Color(11, 18, 32, 72))
+            .build(),
+    )
     .build()
     .map_err(|e| format!("Impossible d'ouvrir l'alerte prioritaire: {e}"))?;
 
     cover_virtual_screen(&window);
+    let _ = window.set_effects(
+        EffectsBuilder::new()
+            .effect(Effect::Acrylic)
+            .effect(Effect::Blur)
+            .state(EffectState::Active)
+            .color(Color(11, 18, 32, 72))
+            .build(),
+    );
     force_window_foreground(&window);
 
     let payload = serde_json::json!({
