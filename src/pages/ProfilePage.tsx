@@ -5,6 +5,8 @@ import { Icon, type IconName } from "@/components/Icon";
 import { authService } from "@/services/authService";
 import { prepareProfileAvatar } from "@/utils/fileUtils";
 import { useToastStore } from "@/store/toastStore";
+import { ProfileAvatarGallery } from "@/components/ProfileAvatarGallery";
+import { isPresetAvatarSrc } from "@/data/presetAvatars";
 
 const PRESENCE_OPTIONS: {
   value: UserProfile["presenceStatus"];
@@ -91,6 +93,7 @@ export function ProfilePage() {
   const { user, token, updatePresence, updateProfile } = useAuthStore();
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLDivElement>(null);
 
   const [statusMessage, setStatusMessage] = useState(user?.statusMessage ?? "");
   const [editingStatus, setEditingStatus] = useState(false);
@@ -122,7 +125,10 @@ export function ProfilePage() {
       if (dataUrl) {
         const savedUrl = token ? await authService.updateMyAvatar(token, dataUrl) : dataUrl;
         updateProfile({ avatarPath: savedUrl });
-        useToastStore.getState().push({ kind: "success", title: "Photo de profil mise à jour" });
+        useToastStore.getState().push({
+          kind: "success",
+          title: isPresetAvatarSrc(savedUrl) ? "Avatar enregistré" : "Photo de profil mise à jour",
+        });
       } else {
         if (token) await authService.clearMyAvatar(token);
         updateProfile({ avatarPath: null });
@@ -189,8 +195,8 @@ export function ProfilePage() {
                 <button
                   type="button"
                   disabled={avatarBusy}
-                  title="Changer la photo de profil"
-                  onClick={() => fileRef.current?.click()}
+                  title="Choisir une photo de profil"
+                  onClick={() => galleryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
                   className="group relative w-[84px] h-[84px] rounded-2xl flex items-center justify-center text-white text-[28px] font-semibold overflow-hidden"
                   style={{ backgroundColor: `hsl(${hue}, 42%, 42%)` }}
                 >
@@ -254,11 +260,20 @@ export function ProfilePage() {
                   <button
                     type="button"
                     disabled={avatarBusy}
-                    onClick={() => fileRef.current?.click()}
+                    onClick={() => galleryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
                     className="text-[12px] font-semibold"
                     style={{ color: "var(--color-primary-600)" }}
                   >
-                    {user.avatarPath ? "Changer la photo" : "Ajouter une photo"}
+                    Choisir un avatar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={avatarBusy}
+                    onClick={() => fileRef.current?.click()}
+                    className="text-[12px] font-medium"
+                    style={{ color: "var(--color-text-secondary)" }}
+                  >
+                    Téléverser une image
                   </button>
                   {user.avatarPath && (
                     <button
@@ -288,6 +303,15 @@ export function ProfilePage() {
               </button>
             </div>
           </section>
+
+          <div ref={galleryRef}>
+            <ProfileAvatarGallery
+              selectedSrc={user.avatarPath}
+              busy={avatarBusy}
+              onSelect={(src) => void persistAvatar(src)}
+              onUploadClick={() => fileRef.current?.click()}
+            />
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {/* Presence */}
