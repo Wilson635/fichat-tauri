@@ -252,6 +252,16 @@ export const authService = {
     if (!isTauri()) return false;
     return tauriInvoke<boolean>("cmd_set_autostart", { enabled });
   },
+
+  async updateMyAvatar(token: string, dataUrl: string): Promise<string> {
+    if (!isTauri()) return dataUrl;
+    return tauriInvoke<string>("cmd_update_my_avatar", { token, dataUrl });
+  },
+
+  async clearMyAvatar(token: string): Promise<void> {
+    if (!isTauri()) return;
+    await tauriInvoke("cmd_clear_my_avatar", { token });
+  },
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

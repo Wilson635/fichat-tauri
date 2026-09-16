@@ -492,3 +492,78 @@ pub async fn cmd_refresh_session(
     )
     .map_err(|e| format!("Erreur JWT : {e}"))
 }
+
+fn uid_from_token(token: &str, secret: &str) -> Result<i32, String> {
+    decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &Validation::new(Algorithm::HS256),
+    )
+    .map(|d| d.claims.user_id)
+    .map_err(|_| "Session expirée ou invalide".to_string())
+}
+
+fn validate_avatar_data_url(data_url: &str) -> Result<(), String> {
+    let url = data_url.trim();
+    if url.is_empty() {
+        return Err("Image manquante.".into());
+    }
+    if url.len() > 350_000 {
+        return Err("Photo trop lourde. Choisissez une image plus légère.".into());
+    }
+    let ok = url.starts_with("data:image/jpeg;base64,")
+        || url.starts_with("data:image/jpg;base64,")
+        || url.starts_with("data:image/png;base64,")
+        || url.starts_with("data:image/webp;base64,");
+    if !ok {
+        return Err("Format d’image non pris en charge (JPEG, PNG ou WebP).".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cmd_update_my_avatar(
+    token: String,
+    data_url: String,
+    state: State<'_, SharedState>,
+) -> Result<String, String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    let uid = uid_from_token(&token, &jwt_secret)?;
+    validate_avatar_data_url(&data_url)?;
+
+    sqlx::query("UPDATE users SET avatar_path = $1, updated_at = NOW() WHERE id = $2")
+        .bind(&data_url)
+        .bind(uid)
+        .execute(&pool)
+        .await
+        .map_err(|e| format!("Enregistrement de la photo : {e}"))?;
+
+    Ok(data_url)
+}
+
+#[tauri::command]
+pub async fn cmd_clear_my_avatar(
+    token: String,
+    state: State<'_, SharedState>,
+) -> Result<(), String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    let uid = uid_from_token(&token, &jwt_secret)?;
+    sqlx::query("UPDATE users SET avatar_path = NULL, updated_at = NOW() WHERE id = $1")
+        .bind(uid)
+        .execute(&pool)
+        .await
+        .map_err(|e| format!("Suppression de la photo : {e}"))?;
+    Ok(())
+}

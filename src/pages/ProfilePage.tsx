@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useRef, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore, type UserProfile } from "@/store/authStore";
 import { Icon, type IconName } from "@/components/Icon";
+import { authService } from "@/services/authService";
+import { prepareProfileAvatar } from "@/utils/fileUtils";
+import { useToastStore } from "@/store/toastStore";
 
 const PRESENCE_OPTIONS: {
   value: UserProfile["presenceStatus"];
@@ -85,12 +88,15 @@ function InfoRow({
 }
 
 export function ProfilePage() {
-  const { user, updatePresence, updateProfile } = useAuthStore();
+  const { user, token, updatePresence, updateProfile } = useAuthStore();
   const navigate = useNavigate();
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const [statusMessage, setStatusMessage] = useState(user?.statusMessage ?? "");
   const [editingStatus, setEditingStatus] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
 
   if (!user) return null;
 
@@ -98,11 +104,51 @@ export function ProfilePage() {
   const presence = PRESENCE_OPTIONS.find((p) => p.value === user.presenceStatus) ?? PRESENCE_OPTIONS[0];
   const roleLabel = user.role === "system_admin" ? "Administrateur" : "Collaborateur";
 
+  const markSaved = () => {
+    setSaved(true);
+    window.setTimeout(() => setSaved(false), 2000);
+  };
+
   const saveStatus = () => {
     updateProfile({ statusMessage: statusMessage.trim() || null });
     setEditingStatus(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    markSaved();
+  };
+
+  const persistAvatar = async (dataUrl: string | null) => {
+    setAvatarBusy(true);
+    setAvatarError(null);
+    try {
+      if (dataUrl) {
+        const savedUrl = token ? await authService.updateMyAvatar(token, dataUrl) : dataUrl;
+        updateProfile({ avatarPath: savedUrl });
+        useToastStore.getState().push({ kind: "success", title: "Photo de profil mise à jour" });
+      } else {
+        if (token) await authService.clearMyAvatar(token);
+        updateProfile({ avatarPath: null });
+        useToastStore.getState().push({ kind: "info", title: "Photo de profil retirée" });
+      }
+      markSaved();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setAvatarError(msg);
+      useToastStore.getState().push({ kind: "error", title: "Photo de profil", detail: msg });
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  const onPickAvatar = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const url = await prepareProfileAvatar(file);
+      await persistAvatar(url);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAvatarError(msg);
+    }
   };
 
   return (
@@ -132,14 +178,54 @@ export function ProfilePage() {
             style={{ backgroundColor: "var(--color-surface)", borderColor: "var(--color-border)" }}
           >
             <div className="flex items-center gap-5 p-6">
-              <div
-                className="w-[84px] h-[84px] rounded-2xl flex items-center justify-center text-white text-[28px] font-semibold shrink-0 overflow-hidden"
-                style={{ backgroundColor: `hsl(${hue}, 42%, 42%)` }}
-              >
-                {user.avatarPath ? (
-                  <img src={user.avatarPath} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  initialsOf(user.displayName)
+              <div className="relative shrink-0">
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/*"
+                  className="hidden"
+                  onChange={onPickAvatar}
+                />
+                <button
+                  type="button"
+                  disabled={avatarBusy}
+                  title="Changer la photo de profil"
+                  onClick={() => fileRef.current?.click()}
+                  className="group relative w-[84px] h-[84px] rounded-2xl flex items-center justify-center text-white text-[28px] font-semibold overflow-hidden"
+                  style={{ backgroundColor: `hsl(${hue}, 42%, 42%)` }}
+                >
+                  {user.avatarPath ? (
+                    <img src={user.avatarPath} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    initialsOf(user.displayName)
+                  )}
+                  <span
+                    className={`absolute inset-0 flex items-center justify-center bg-black/50 transition-opacity ${
+                      avatarBusy ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
+                    }`}
+                  >
+                    {avatarBusy ? (
+                      <Icon name="loader" size={22} className="animate-spin text-white" />
+                    ) : (
+                      <Icon name="camera" size={22} className="text-white" />
+                    )}
+                  </span>
+                </button>
+                {user.avatarPath && (
+                  <button
+                    type="button"
+                    disabled={avatarBusy}
+                    title="Retirer la photo"
+                    onClick={() => void persistAvatar(null)}
+                    className="absolute -bottom-1 -right-1 w-7 h-7 rounded-lg flex items-center justify-center border"
+                    style={{
+                      backgroundColor: "var(--color-surface)",
+                      borderColor: "var(--color-border)",
+                      color: "var(--color-text-secondary)",
+                    }}
+                  >
+                    <Icon name="trash" size={13} />
+                  </button>
                 )}
               </div>
               <div className="min-w-0 flex-1">
@@ -164,6 +250,33 @@ export function ProfilePage() {
                     {user.statusMessage ? ` · ${user.statusMessage}` : ""}
                   </span>
                 </div>
+                <div className="flex items-center gap-2 mt-3 flex-wrap">
+                  <button
+                    type="button"
+                    disabled={avatarBusy}
+                    onClick={() => fileRef.current?.click()}
+                    className="text-[12px] font-semibold"
+                    style={{ color: "var(--color-primary-600)" }}
+                  >
+                    {user.avatarPath ? "Changer la photo" : "Ajouter une photo"}
+                  </button>
+                  {user.avatarPath && (
+                    <button
+                      type="button"
+                      disabled={avatarBusy}
+                      onClick={() => void persistAvatar(null)}
+                      className="text-[12px] font-medium"
+                      style={{ color: "var(--color-text-muted)" }}
+                    >
+                      Retirer
+                    </button>
+                  )}
+                </div>
+                {avatarError && (
+                  <p className="text-[12px] mt-2" style={{ color: "var(--accent-red)" }}>
+                    {avatarError}
+                  </p>
+                )}
               </div>
               <button
                 type="button"

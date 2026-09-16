@@ -373,8 +373,12 @@ export function ConversationInfoPanel({ conversation, onClose, onOpenFile }: Pro
                           disabled={loadingMember === u.id}
                           className="w-full flex items-center gap-2.5 px-2 py-2 rounded-xl text-left disabled:opacity-50"
                         >
-                          <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-[10px] font-semibold" style={{ backgroundColor: `hsl(${hueOf(u.displayName)}, 42%, 42%)` }}>
-                            {initialsOf(u.displayName)}
+                          <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-[10px] font-semibold overflow-hidden" style={{ backgroundColor: `hsl(${hueOf(u.displayName)}, 42%, 42%)` }}>
+                            {u.avatarPath ? (
+                              <img src={u.avatarPath} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              initialsOf(u.displayName)
+                            )}
                           </div>
                           <span className="min-w-0">
                             <span className="block text-[13px] font-medium truncate" style={{ color: "var(--color-text-primary)" }}>{u.displayName}</span>
@@ -390,11 +394,16 @@ export function ConversationInfoPanel({ conversation, onClose, onOpenFile }: Pro
               {members.map((m) => {
                 const isMe = m.userId === user?.id;
                 const dir = usersById.get(m.userId);
+                const photo = (isMe ? user?.avatarPath : null) || m.avatarPath;
                 return (
                   <div key={m.userId} className="flex items-center gap-3 px-4 py-2.5 group">
                     <div className="relative shrink-0">
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-[11px] font-semibold" style={{ backgroundColor: `hsl(${hueOf(m.displayName)}, 42%, 42%)` }}>
-                        {initialsOf(m.displayName)}
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-[11px] font-semibold overflow-hidden" style={{ backgroundColor: `hsl(${hueOf(m.displayName)}, 42%, 42%)` }}>
+                        {photo ? (
+                          <img src={photo} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          initialsOf(m.displayName)
+                        )}
                       </div>
                       <span
                         className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2"

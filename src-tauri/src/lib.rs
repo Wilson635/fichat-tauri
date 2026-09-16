@@ -84,6 +84,8 @@ pub fn run() {
             commands::auth::cmd_logout,
             commands::auth::cmd_get_session,
             commands::auth::cmd_refresh_session,
+            commands::auth::cmd_update_my_avatar,
+            commands::auth::cmd_clear_my_avatar,
             // ── Admin ────────────────────────────────────
             commands::admin::cmd_admin_list_users,
             commands::admin::cmd_admin_update_role,

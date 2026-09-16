@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useChatStore } from "@/store/chatStore";
 import { useAuthStore } from "@/store/authStore";
@@ -112,6 +112,14 @@ function StatusIcon({ status }: { status: string }) {
   return null;
 }
 
+type ConvFilter = "all" | "direct" | "group";
+
+const FILTERS: { id: ConvFilter; label: string }[] = [
+  { id: "all", label: "Tous" },
+  { id: "direct", label: "Directs" },
+  { id: "group", label: "Groupes" },
+];
+
 interface Props {
   searchQuery: string;
   onNewGroup?: () => void;
@@ -126,6 +134,7 @@ export function ConversationList({ searchQuery }: Props) {
   const { conversations, isLoadingConversations, loadConversations, connectWs } = useChatStore();
   const { user } = useAuthStore();
   const hasLoaded = useRef(false);
+  const [filter, setFilter] = useState<ConvFilter>("all");
 
   useEffect(() => {
     if (!hasLoaded.current) {
@@ -135,15 +144,65 @@ export function ConversationList({ searchQuery }: Props) {
     }
   }, []);
 
+  const typed = filter === "all"
+      ? conversations
+      : conversations.filter((c) => c.convType === filter);
+
   const filtered = searchQuery.trim()
-      ? conversations.filter((c) =>
+      ? typed.filter((c) =>
           c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           c.lastMessage?.toLowerCase().includes(searchQuery.toLowerCase())
       )
-      : conversations;
+      : typed;
 
-  if (isLoadingConversations) {
-    return (
+  const unreadOf = (id: ConvFilter) =>
+      conversations.filter((c) => (id === "all" || c.convType === id) && c.unreadCount > 0)
+          .reduce((n, c) => n + c.unreadCount, 0);
+
+  const emptyCopy = searchQuery
+      ? "Aucun résultat"
+      : filter === "direct"
+        ? "Aucune conversation directe"
+        : filter === "group"
+          ? "Aucun groupe"
+          : "Aucune conversation";
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0 min-w-0">
+      <div className="px-3 shrink-0" style={{ borderBottom: "1px solid var(--color-border)" }}>
+        <div className="flex gap-1" role="tablist" aria-label="Filtrer les discussions">
+          {FILTERS.map((tab) => {
+            const on = filter === tab.id;
+            const unread = unreadOf(tab.id);
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                onClick={() => setFilter(tab.id)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-[12px] font-semibold"
+                style={{
+                  color: on ? "var(--color-primary-600)" : "var(--color-text-muted)",
+                  borderBottom: on ? "2px solid var(--color-primary-500)" : "2px solid transparent",
+                }}
+              >
+                {tab.label}
+                {unread > 0 && (
+                  <span
+                    className="min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold text-white leading-4"
+                    style={{ backgroundColor: "var(--color-primary-500)" }}
+                  >
+                    {unread > 99 ? "99+" : unread}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {isLoadingConversations ? (
         <div className="flex-1 overflow-y-auto overflow-x-hidden">
           {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="flex items-center gap-3 px-3 py-3 animate-pulse">
@@ -155,23 +214,16 @@ export function ConversationList({ searchQuery }: Props) {
               </div>
           ))}
         </div>
-    );
-  }
-
-  if (!filtered.length) {
-    return (
+      ) : !filtered.length ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 px-8 text-center">
           <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ backgroundColor: "var(--color-surface-secondary)" }}>
-            <Icon name="message" size={28} style={{ color: "var(--color-text-muted)" }} />
+            <Icon name={filter === "group" ? "users" : "message"} size={28} style={{ color: "var(--color-text-muted)" }} />
           </div>
           <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
-            {searchQuery ? "Aucun résultat" : "Aucune conversation"}
+            {emptyCopy}
           </p>
         </div>
-    );
-  }
-
-  return (
+      ) : (
       <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-1.5">
         {filtered.map((conv) => {
           const isActive = conv.id === activeId;
@@ -258,5 +310,7 @@ export function ConversationList({ searchQuery }: Props) {
           );
         })}
       </div>
+      )}
+    </div>
   );
 }
