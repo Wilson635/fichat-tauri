@@ -253,6 +253,45 @@ export const authService = {
     return tauriInvoke<boolean>("cmd_set_autostart", { enabled });
   },
 
+  async updateMyProfile(
+    token: string,
+    payload: {
+      displayName: string;
+      email: string;
+      phone: string;
+      department: string;
+      title: string;
+      statusMessage: string;
+    },
+  ): Promise<UserProfile> {
+    if (!isTauri()) {
+      const current = (await import("@/store/authStore")).useAuthStore.getState().user;
+      return {
+        id: current?.id ?? 1,
+        username: current?.username ?? "",
+        displayName: payload.displayName.trim(),
+        email: payload.email.trim() || null,
+        phone: payload.phone.trim() || null,
+        department: payload.department.trim() || null,
+        title: payload.title.trim() || null,
+        avatarPath: current?.avatarPath ?? null,
+        role: current?.role ?? "user",
+        presenceStatus: current?.presenceStatus ?? "online",
+        statusMessage: payload.statusMessage.trim() || null,
+      };
+    }
+    const raw = await tauriInvoke<Record<string, unknown>>("cmd_update_my_profile", {
+      token,
+      displayName: payload.displayName,
+      email: payload.email,
+      phone: payload.phone,
+      department: payload.department,
+      title: payload.title,
+      statusMessage: payload.statusMessage,
+    });
+    return mapUserProfile(raw);
+  },
+
   async updateMyAvatar(token: string, dataUrl: string): Promise<string> {
     if (!isTauri()) return dataUrl;
     return tauriInvoke<string>("cmd_update_my_avatar", { token, dataUrl });

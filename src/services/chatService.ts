@@ -72,6 +72,7 @@ export interface ConversationSummary {
   id: number;
   convType: "direct" | "group";
   name: string;
+  description?: string | null;
   avatarPath: string | null;
   lastMessage: string | null;
   lastMessageAt: string | null;
@@ -120,6 +121,7 @@ function mapConversation(raw: any): ConversationSummary {
     id: Number(raw.id ?? raw.id),
     convType: raw.conv_type ?? raw.convType,
     name: raw.name,
+    description: raw.description ?? null,
     avatarPath: raw.avatar_path ?? raw.avatarPath ?? null,
     lastMessage: raw.last_message ?? raw.lastMessage ?? null,
     lastMessageAt: raw.last_message_at ?? raw.lastMessageAt ?? null,
@@ -403,6 +405,7 @@ export const chatService = {
         id: convId,
         convType: "group",
         name,
+        description: description.trim() || null,
         avatarPath: null,
         lastMessage: null,
         lastMessageAt: new Date().toISOString(),
@@ -415,6 +418,28 @@ export const chatService = {
     }
     const token = useAuthStore.getState().token!;
     return Number(await invoke<number>("cmd_create_group_conversation", { token, name, description, memberIds }));
+  },
+
+  async updateGroup(
+    conversationId: number,
+    name: string,
+    description: string,
+    avatarPath: string | null,
+  ): Promise<{ name: string; description: string | null; avatarPath: string | null }> {
+    if (!isTauri()) {
+      dbUpdateConversation(currentUid(), conversationId, { name, description, avatarPath });
+      return { name, description: description.trim() || null, avatarPath };
+    }
+    const token = useAuthStore.getState().token!;
+    const raw = await invoke<{ name: string; description: string | null; avatar_path?: string | null; avatarPath?: string | null }>(
+      "cmd_update_group",
+      { token, conversationId, name, description, avatarPath },
+    );
+    return {
+      name: raw.name,
+      description: raw.description ?? null,
+      avatarPath: raw.avatar_path ?? raw.avatarPath ?? null,
+    };
   },
 
   // ── Group member management ──────────────────────────────────────────────────

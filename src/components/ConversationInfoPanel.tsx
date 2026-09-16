@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
 import { useChatStore } from "@/store/chatStore";
@@ -6,8 +6,10 @@ import { chatService } from "@/services/chatService";
 import type { ConversationSummary, UserForChat, MediaItem, AttachmentDto } from "@/services/chatService";
 import { useResizable } from "@/hooks/useResizable";
 import { AttachmentVisualPreview, DocMetaRow } from "@/components/DocPreview";
-import { isImage, isVideo } from "@/utils/fileUtils";
+import { isImage, isVideo, prepareProfileAvatar } from "@/utils/fileUtils";
 import { Icon, type IconName } from "@/components/Icon";
+import { ProfileAvatarGallery } from "@/components/ProfileAvatarGallery";
+import { useToastStore } from "@/store/toastStore";
 
 const presenceLabel: Record<string, string> = {
   online: "En ligne",
@@ -76,9 +78,10 @@ interface Props {
 export function ConversationInfoPanel({ conversation, onClose, onOpenFile }: Props) {
   const { user } = useAuthStore();
   const navigate = useNavigate();
-  const { addGroupMember, removeGroupMember, updateGroupMemberRole } = useChatStore();
+  const { addGroupMember, removeGroupMember, updateGroupMemberRole, updateGroup } = useChatStore();
   const isGroup = conversation.convType === "group";
   const other = conversation.participants.find((p) => p.userId !== user?.id) ?? conversation.participants[0];
+  const groupFileRef = useRef<HTMLInputElement>(null);
 
   const [tab, setTab] = useState<"infos" | "members" | "media">(isGroup ? "members" : "infos");
   const [showAddMember, setShowAddMember] = useState(false);
@@ -89,6 +92,11 @@ export function ConversationInfoPanel({ conversation, onClose, onOpenFile }: Pro
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [mediaLoading, setMediaLoading] = useState(false);
   const [mediaTab, setMediaTab] = useState<"photos" | "docs">("photos");
+  const [editingGroup, setEditingGroup] = useState(false);
+  const [groupName, setGroupName] = useState(conversation.name);
+  const [groupDesc, setGroupDesc] = useState(conversation.description ?? "");
+  const [groupBusy, setGroupBusy] = useState(false);
+  const [showGroupAvatars, setShowGroupAvatars] = useState(false);
 
   const { size: panelWidth, dragHandleProps } = useResizable(360, 300, 560, "left");
 
@@ -109,12 +117,21 @@ export function ConversationInfoPanel({ conversation, onClose, onOpenFile }: Pro
     setTab(isGroup ? "members" : "infos");
     setShowAddMember(false);
     setConfirmLeave(false);
-  }, [conversation.id, isGroup]);
+    setEditingGroup(false);
+    setGroupName(conversation.name);
+    setGroupDesc(conversation.description ?? "");
+    setShowGroupAvatars(false);
+  }, [conversation.id, isGroup, conversation.name, conversation.description]);
 
   const members = conversation.participants;
   const currentMember = members.find((m) => m.userId === user?.id);
   const isAdmin = currentMember?.role === "admin";
   const orgLocked = Boolean(conversation.adSyncKey);
+  const canEditGroup =
+    isGroup &&
+    conversation.membership !== "none" &&
+    conversation.membership !== "pending" &&
+    (isAdmin || user?.role === "system_admin");
   const memberIds = new Set(members.map((m) => m.userId));
   const usersById = useMemo(() => new Map(allUsers.map((u) => [u.id, u])), [allUsers]);
   const directory = other ? usersById.get(other.userId) : undefined;
@@ -165,6 +182,38 @@ export function ConversationInfoPanel({ conversation, onClose, onOpenFile }: Pro
     }
   };
 
+  const saveGroupMeta = async (name: string, description: string, avatarPath: string | null) => {
+    setGroupBusy(true);
+    try {
+      await updateGroup(conversation.id, name, description, avatarPath);
+      useToastStore.getState().push({ kind: "success", title: "Groupe mis à jour" });
+      setEditingGroup(false);
+      setShowGroupAvatars(false);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      useToastStore.getState().push({ kind: "error", title: "Groupe", detail: msg });
+    } finally {
+      setGroupBusy(false);
+    }
+  };
+
+  const onPickGroupAvatar = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const url = await prepareProfileAvatar(file);
+      await saveGroupMeta(
+        editingGroup ? groupName : conversation.name,
+        editingGroup ? groupDesc : (conversation.description ?? ""),
+        url,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      useToastStore.getState().push({ kind: "error", title: "Photo du groupe", detail: msg });
+    }
+  };
+
   const title = isGroup ? conversation.name : (other?.displayName ?? conversation.name);
   const hue = hueOf(title);
   const presence = !isGroup ? other?.presenceStatus : null;
@@ -206,16 +255,47 @@ export function ConversationInfoPanel({ conversation, onClose, onOpenFile }: Pro
 
         <div className="flex-1 overflow-y-auto min-h-0">
           <div className="px-4 pt-5 pb-4 flex flex-col items-center text-center" style={{ background: "var(--color-header-bg)" }}>
-            <div
-              className="w-[84px] h-[84px] rounded-2xl flex items-center justify-center text-white text-[26px] font-semibold overflow-hidden"
-              style={{ backgroundColor: `hsl(${hue}, 42%, 42%)` }}
-            >
-              {conversation.avatarPath ? (
-                <img src={conversation.avatarPath} alt="" className="w-full h-full object-cover" />
-              ) : (
-                initialsOf(title)
-              )}
-            </div>
+            <input
+              ref={groupFileRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/*"
+              className="hidden"
+              onChange={onPickGroupAvatar}
+            />
+            {canEditGroup ? (
+              <button
+                type="button"
+                disabled={groupBusy}
+                title="Changer la photo du groupe"
+                onClick={() => setShowGroupAvatars((v) => !v)}
+                className="group relative w-[84px] h-[84px] rounded-2xl flex items-center justify-center text-white text-[26px] font-semibold overflow-hidden"
+                style={{ backgroundColor: `hsl(${hue}, 42%, 42%)` }}
+              >
+                {conversation.avatarPath ? (
+                  <img src={conversation.avatarPath} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  initialsOf(title)
+                )}
+                <span className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {groupBusy ? (
+                    <Icon name="loader" size={22} className="animate-spin text-white" />
+                  ) : (
+                    <Icon name="camera" size={22} className="text-white" />
+                  )}
+                </span>
+              </button>
+            ) : (
+              <div
+                className="w-[84px] h-[84px] rounded-2xl flex items-center justify-center text-white text-[26px] font-semibold overflow-hidden"
+                style={{ backgroundColor: `hsl(${hue}, 42%, 42%)` }}
+              >
+                {conversation.avatarPath ? (
+                  <img src={conversation.avatarPath} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  initialsOf(title)
+                )}
+              </div>
+            )}
             <h3 className="mt-3 text-[17px] font-semibold tracking-tight" style={{ color: "var(--color-text-primary)" }}>
               {title}
             </h3>
@@ -230,6 +310,56 @@ export function ConversationInfoPanel({ conversation, onClose, onOpenFile }: Pro
                   {presenceLabel[presence] ?? "Hors ligne"}
                 </p>
               )
+            )}
+            {canEditGroup && (
+              <div className="flex items-center gap-3 mt-2 flex-wrap justify-center">
+                <button
+                  type="button"
+                  disabled={groupBusy}
+                  className="text-[12px] font-semibold"
+                  style={{ color: "var(--color-primary-600)" }}
+                  onClick={() => setShowGroupAvatars((v) => !v)}
+                >
+                  {showGroupAvatars ? "Masquer les avatars" : "Choisir un avatar"}
+                </button>
+                <button
+                  type="button"
+                  disabled={groupBusy}
+                  className="text-[12px] font-medium"
+                  style={{ color: "var(--color-text-secondary)" }}
+                  onClick={() => groupFileRef.current?.click()}
+                >
+                  Téléverser une image
+                </button>
+                {conversation.avatarPath && (
+                  <button
+                    type="button"
+                    disabled={groupBusy}
+                    className="text-[12px] font-medium"
+                    style={{ color: "var(--color-text-muted)" }}
+                    onClick={() => void saveGroupMeta(conversation.name, conversation.description ?? "", null)}
+                  >
+                    Retirer
+                  </button>
+                )}
+              </div>
+            )}
+            {showGroupAvatars && canEditGroup && (
+              <div className="w-full mt-3 text-left">
+                <ProfileAvatarGallery
+                  compact
+                  selectedSrc={conversation.avatarPath}
+                  busy={groupBusy}
+                  onSelect={(src) =>
+                    void saveGroupMeta(
+                      editingGroup ? groupName : conversation.name,
+                      editingGroup ? groupDesc : (conversation.description ?? ""),
+                      src,
+                    )
+                  }
+                  onUploadClick={() => groupFileRef.current?.click()}
+                />
+              </div>
             )}
           </div>
 
@@ -255,13 +385,81 @@ export function ConversationInfoPanel({ conversation, onClose, onOpenFile }: Pro
               <section className="rounded-2xl border overflow-hidden" style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}>
                 {isGroup ? (
                   <>
-                    <InfoLine icon="users" label="Participants" value={`${members.length} membre${members.length > 1 ? "s" : ""}`} />
-                    <InfoLine icon="user" label="Créé par" value={conversation.createdByName ?? "—"} />
-                    <InfoLine
-                      icon="info"
-                      label="En ligne"
-                      value={`${members.filter((m) => m.presenceStatus === "online").length} actuellement`}
-                    />
+                    {editingGroup ? (
+                      <div className="p-3.5 space-y-3">
+                        <label className="block text-left">
+                          <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>
+                            Nom du groupe
+                          </span>
+                          <input
+                            value={groupName}
+                            onChange={(e) => setGroupName(e.target.value.slice(0, 80))}
+                            className="mt-1 w-full px-3 py-2 rounded-xl text-[13px] outline-none border"
+                            style={{ backgroundColor: "var(--color-input-bg)", borderColor: "var(--color-border)", color: "var(--color-text-primary)" }}
+                          />
+                        </label>
+                        <label className="block text-left">
+                          <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>
+                            Description
+                          </span>
+                          <textarea
+                            value={groupDesc}
+                            onChange={(e) => setGroupDesc(e.target.value.slice(0, 500))}
+                            rows={3}
+                            className="mt-1 w-full px-3 py-2 rounded-xl text-[13px] outline-none border resize-none"
+                            style={{ backgroundColor: "var(--color-input-bg)", borderColor: "var(--color-border)", color: "var(--color-text-primary)" }}
+                          />
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={groupBusy}
+                            onClick={() => void saveGroupMeta(groupName, groupDesc, conversation.avatarPath)}
+                            className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white"
+                            style={{ backgroundColor: "var(--color-primary-500)" }}
+                          >
+                            Enregistrer
+                          </button>
+                          <button
+                            type="button"
+                            disabled={groupBusy}
+                            onClick={() => {
+                              setEditingGroup(false);
+                              setGroupName(conversation.name);
+                              setGroupDesc(conversation.description ?? "");
+                            }}
+                            className="text-[12px] font-medium"
+                            style={{ color: "var(--color-text-muted)" }}
+                          >
+                            Annuler
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <InfoLine icon="users" label="Participants" value={`${members.length} membre${members.length > 1 ? "s" : ""}`} />
+                        <InfoLine icon="user" label="Créé par" value={conversation.createdByName ?? "—"} />
+                        <InfoLine
+                          icon="info"
+                          label="Description"
+                          value={conversation.description?.trim() || "Aucune description"}
+                        />
+                        {canEditGroup && (
+                          <button
+                            type="button"
+                            className="w-full flex items-center justify-center gap-2 py-3 text-[12px] font-semibold"
+                            style={{ color: "var(--color-primary-600)", borderTop: "1px solid var(--color-border)" }}
+                            onClick={() => {
+                              setGroupName(conversation.name);
+                              setGroupDesc(conversation.description ?? "");
+                              setEditingGroup(true);
+                            }}
+                          >
+                            Modifier le groupe
+                          </button>
+                        )}
+                      </>
+                    )}
                   </>
                 ) : (
                   <>

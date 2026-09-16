@@ -516,11 +516,6 @@ pub async fn cmd_admin_sync_ad(
                     INSERT INTO users (username, display_name, email, department, title, phone, ldap_dn, auth_source, is_active, updated_at)
                     VALUES ($1, $2, $3, $4, $5, $6, $7, 'ad', true, NOW())
                     ON CONFLICT (username) DO UPDATE SET
-                        display_name = EXCLUDED.display_name,
-                        email        = EXCLUDED.email,
-                        department   = EXCLUDED.department,
-                        title        = EXCLUDED.title,
-                        phone        = EXCLUDED.phone,
                         ldap_dn      = EXCLUDED.ldap_dn,
                         auth_source  = 'ad',
                         is_active    = true,

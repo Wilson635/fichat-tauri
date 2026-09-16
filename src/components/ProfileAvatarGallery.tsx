@@ -17,11 +17,13 @@ export function ProfileAvatarGallery({
   busy,
   onSelect,
   onUploadClick,
+  compact = false,
 }: {
   selectedSrc: string | null;
   busy: boolean;
   onSelect: (src: string) => void;
   onUploadClick: () => void;
+  compact?: boolean;
 }) {
   const start = initialFromSrc(selectedSrc);
   const [gender, setGender] = useState<AvatarGender>(start.gender);
@@ -38,26 +40,28 @@ export function ProfileAvatarGallery({
       className="rounded-2xl border overflow-hidden"
       style={{ backgroundColor: "var(--color-surface)", borderColor: "var(--color-border)" }}
     >
-      <div className="px-4 py-3 border-b flex items-start justify-between gap-3" style={{ borderColor: "var(--color-border)" }}>
-        <div>
-          <h3 className="text-[13px] font-semibold" style={{ color: "var(--color-text-primary)" }}>
-            Photo de profil
-          </h3>
-          <p className="text-[12px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>
-            Choisissez un avatar, ou téléversez votre image
-          </p>
+      {!compact && (
+        <div className="px-4 py-3 border-b flex items-start justify-between gap-3" style={{ borderColor: "var(--color-border)" }}>
+          <div>
+            <h3 className="text-[13px] font-semibold" style={{ color: "var(--color-text-primary)" }}>
+              Photo de profil
+            </h3>
+            <p className="text-[12px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+              Choisissez un avatar, ou téléversez votre image
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onUploadClick}
+            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white"
+            style={{ backgroundColor: "var(--color-primary-500)" }}
+          >
+            <Icon name="image" size={14} />
+            Téléverser une image
+          </button>
         </div>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onUploadClick}
-          className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white"
-          style={{ backgroundColor: "var(--color-primary-500)" }}
-        >
-          <Icon name="image" size={14} />
-          Téléverser une image
-        </button>
-      </div>
+      )}
 
       <div className="px-4 pt-3 flex gap-1.5">
         {(["homme", "femme"] as const).map((g) => {
@@ -100,7 +104,7 @@ export function ProfileAvatarGallery({
         })}
       </div>
 
-      <div className="p-4 grid grid-cols-5 gap-2.5">
+      <div className={`${compact ? "p-3 grid-cols-4 gap-2" : "p-4 grid-cols-5 gap-2.5"} grid`}>
         {avatars.map((a) => {
           const selected = selectedSrc === a.src;
           return (

@@ -4,6 +4,7 @@ mod db;
 mod log_buffer;
 mod log_archive;
 mod ad_employee;
+mod avatar;
 mod pg_notify;
 mod ws;
 mod background;
@@ -86,6 +87,7 @@ pub fn run() {
             commands::auth::cmd_refresh_session,
             commands::auth::cmd_update_my_avatar,
             commands::auth::cmd_clear_my_avatar,
+            commands::auth::cmd_update_my_profile,
             // ── Admin ────────────────────────────────────
             commands::admin::cmd_admin_list_users,
             commands::admin::cmd_admin_update_role,
@@ -117,6 +119,7 @@ pub fn run() {
             commands::chat::cmd_remove_group_member,
             commands::chat::cmd_update_member_role,
             commands::chat::cmd_request_org_group_join,
+            commands::chat::cmd_update_group,
             commands::chat::cmd_send_message_with_file,
             commands::chat::cmd_get_file_as_base64,
             commands::chat::cmd_get_attachment_data,

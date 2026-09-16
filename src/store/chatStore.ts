@@ -37,6 +37,7 @@ interface ChatState {
   addGroupMember: (conversationId: number, userId: number) => Promise<void>;
   removeGroupMember: (conversationId: number, userId: number) => Promise<void>;
   updateGroupMemberRole: (conversationId: number, userId: number, role: "admin" | "member") => Promise<void>;
+  updateGroup: (conversationId: number, name: string, description: string, avatarPath: string | null) => Promise<void>;
   requestOrgGroupJoin: (conversationId: number) => Promise<void>;
 }
 
@@ -453,6 +454,17 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           ),
         };
       }),
+    }));
+  },
+
+  updateGroup: async (conversationId, name, description, avatarPath) => {
+    const updated = await chatService.updateGroup(conversationId, name, description, avatarPath);
+    set((s) => ({
+      conversations: s.conversations.map((c) =>
+        c.id === conversationId
+          ? { ...c, name: updated.name, description: updated.description, avatarPath: updated.avatarPath }
+          : c
+      ),
     }));
   },
 

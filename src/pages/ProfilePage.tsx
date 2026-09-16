@@ -89,6 +89,37 @@ function InfoRow({
   );
 }
 
+function ProfileField({
+  label,
+  value,
+  onChange,
+  type = "text",
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>
+        {label}
+      </span>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-1 w-full px-3 py-2 rounded-xl text-[13px] outline-none border"
+        style={{
+          backgroundColor: "var(--color-input-bg)",
+          borderColor: "var(--color-border)",
+          color: "var(--color-text-primary)",
+        }}
+      />
+    </label>
+  );
+}
+
 export function ProfilePage() {
   const { user, token, updatePresence, updateProfile } = useAuthStore();
   const navigate = useNavigate();
@@ -100,6 +131,14 @@ export function ProfilePage() {
   const [saved, setSaved] = useState(false);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [editingInfo, setEditingInfo] = useState(false);
+  const [infoBusy, setInfoBusy] = useState(false);
+  const [infoError, setInfoError] = useState<string | null>(null);
+  const [nameDraft, setNameDraft] = useState(user?.displayName ?? "");
+  const [emailDraft, setEmailDraft] = useState(user?.email ?? "");
+  const [phoneDraft, setPhoneDraft] = useState(user?.phone ?? "");
+  const [deptDraft, setDeptDraft] = useState(user?.department ?? "");
+  const [titleDraft, setTitleDraft] = useState(user?.title ?? "");
 
   if (!user) return null;
 
@@ -112,10 +151,83 @@ export function ProfilePage() {
     window.setTimeout(() => setSaved(false), 2000);
   };
 
-  const saveStatus = () => {
-    updateProfile({ statusMessage: statusMessage.trim() || null });
-    setEditingStatus(false);
-    markSaved();
+  const persistProfile = async (patch: {
+    displayName?: string;
+    email?: string;
+    phone?: string;
+    department?: string;
+    title?: string;
+    statusMessage?: string | null;
+  }) => {
+    if (!user) return;
+    const payload = {
+      displayName: (patch.displayName ?? user.displayName).trim(),
+      email: patch.email ?? user.email ?? "",
+      phone: patch.phone ?? user.phone ?? "",
+      department: patch.department ?? user.department ?? "",
+      title: patch.title ?? user.title ?? "",
+      statusMessage: patch.statusMessage !== undefined ? (patch.statusMessage ?? "") : (user.statusMessage ?? ""),
+    };
+    if (payload.displayName.length < 2) {
+      throw new Error("Le nom affiché doit contenir au moins 2 caractères.");
+    }
+    if (token) {
+      const savedProfile = await authService.updateMyProfile(token, payload);
+      updateProfile({ ...savedProfile, presenceStatus: user.presenceStatus });
+    } else {
+      updateProfile({
+        displayName: payload.displayName,
+        email: payload.email.trim() || null,
+        phone: payload.phone.trim() || null,
+        department: payload.department.trim() || null,
+        title: payload.title.trim() || null,
+        statusMessage: payload.statusMessage.trim() || null,
+      });
+    }
+  };
+
+  const saveStatus = async () => {
+    setInfoError(null);
+    try {
+      await persistProfile({ statusMessage: statusMessage.trim() || null });
+      setEditingStatus(false);
+      markSaved();
+    } catch (e) {
+      setInfoError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const startEditInfo = () => {
+    setNameDraft(user.displayName);
+    setEmailDraft(user.email ?? "");
+    setPhoneDraft(user.phone ?? "");
+    setDeptDraft(user.department ?? "");
+    setTitleDraft(user.title ?? "");
+    setInfoError(null);
+    setEditingInfo(true);
+  };
+
+  const saveInfo = async () => {
+    setInfoBusy(true);
+    setInfoError(null);
+    try {
+      await persistProfile({
+        displayName: nameDraft,
+        email: emailDraft,
+        phone: phoneDraft,
+        department: deptDraft,
+        title: titleDraft,
+      });
+      setEditingInfo(false);
+      markSaved();
+      useToastStore.getState().push({ kind: "success", title: "Profil mis à jour" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setInfoError(msg);
+      useToastStore.getState().push({ kind: "error", title: "Profil", detail: msg });
+    } finally {
+      setInfoBusy(false);
+    }
   };
 
   const persistAvatar = async (dataUrl: string | null) => {
@@ -431,20 +543,63 @@ export function ProfilePage() {
             className="rounded-2xl border overflow-hidden"
             style={{ backgroundColor: "var(--color-surface)", borderColor: "var(--color-border)" }}
           >
-            <div className="px-4 py-3 border-b" style={{ borderColor: "var(--color-border)" }}>
-              <h3 className="text-[13px] font-semibold" style={{ color: "var(--color-text-primary)" }}>
-                Annuaire
-              </h3>
-              <p className="text-[12px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>
-                Informations issues de l’annuaire d’entreprise
-              </p>
+            <div className="px-4 py-3 border-b flex items-center justify-between gap-3" style={{ borderColor: "var(--color-border)" }}>
+              <div>
+                <h3 className="text-[13px] font-semibold" style={{ color: "var(--color-text-primary)" }}>
+                  Mes informations
+                </h3>
+                <p className="text-[12px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+                  Visible par vos collègues
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={infoBusy}
+                onClick={() => {
+                  if (editingInfo) {
+                    setEditingInfo(false);
+                    setInfoError(null);
+                  } else {
+                    startEditInfo();
+                  }
+                }}
+                className="text-[12px] font-semibold"
+                style={{ color: "var(--color-primary-600)" }}
+              >
+                {editingInfo ? "Annuler" : "Modifier"}
+              </button>
             </div>
-            <div className="divide-y" style={{ borderColor: "var(--color-border)" }}>
-              <InfoRow icon="mail" label="E-mail" value={user.email ?? "Non renseigné"} copyable />
-              <InfoRow icon="phone" label="Téléphone" value={user.phone ?? "Non renseigné"} copyable />
-              <InfoRow icon="users" label="Département" value={user.department ?? "Non renseigné"} />
-              <InfoRow icon="user" label="Poste" value={user.title ?? "Non renseigné"} />
-            </div>
+            {editingInfo ? (
+              <div className="p-4 space-y-3">
+                <ProfileField label="Nom affiché" value={nameDraft} onChange={setNameDraft} />
+                <ProfileField label="E-mail" value={emailDraft} onChange={setEmailDraft} type="email" />
+                <ProfileField label="Téléphone" value={phoneDraft} onChange={setPhoneDraft} />
+                <ProfileField label="Département" value={deptDraft} onChange={setDeptDraft} />
+                <ProfileField label="Poste" value={titleDraft} onChange={setTitleDraft} />
+                <InfoRow icon="user" label="Identifiant" value={`@${user.username}`} />
+                {infoError && (
+                  <p className="text-[12px]" style={{ color: "var(--accent-red)" }}>{infoError}</p>
+                )}
+                <button
+                  type="button"
+                  disabled={infoBusy}
+                  onClick={() => void saveInfo()}
+                  className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white"
+                  style={{ backgroundColor: "var(--color-primary-500)" }}
+                >
+                  {infoBusy ? "Enregistrement…" : "Enregistrer"}
+                </button>
+              </div>
+            ) : (
+              <div className="divide-y" style={{ borderColor: "var(--color-border)" }}>
+                <InfoRow icon="user" label="Nom affiché" value={user.displayName} />
+                <InfoRow icon="mail" label="E-mail" value={user.email ?? "Non renseigné"} copyable />
+                <InfoRow icon="phone" label="Téléphone" value={user.phone ?? "Non renseigné"} copyable />
+                <InfoRow icon="users" label="Département" value={user.department ?? "Non renseigné"} />
+                <InfoRow icon="type" label="Poste" value={user.title ?? "Non renseigné"} />
+                <InfoRow icon="lock" label="Identifiant" value={`@${user.username}`} />
+              </div>
+            )}
           </section>
         </div>
       </div>

@@ -137,16 +137,12 @@ pub async fn cmd_ldap_login(
         INSERT INTO users (username, display_name, email, department, title, phone, ldap_dn, auth_source, updated_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, 'ad', NOW())
         ON CONFLICT (username) DO UPDATE SET
-            display_name = EXCLUDED.display_name,
-            email        = EXCLUDED.email,
-            department   = EXCLUDED.department,
-            title        = EXCLUDED.title,
-            phone        = EXCLUDED.phone,
             ldap_dn      = EXCLUDED.ldap_dn,
             auth_source  = 'ad',
             updated_at   = NOW()
         WHERE users.auth_source IS DISTINCT FROM 'local'
-        RETURNING id, role, avatar_path, status_message, presence_status, session_version, is_active
+        RETURNING id, role, avatar_path, status_message, presence_status, session_version, is_active,
+                  display_name, email, department, title, phone
         "#,
     )
     .bind(&username)
@@ -167,6 +163,13 @@ pub async fn cmd_ldap_login(
     let status_message       = row.try_get::<Option<String>, _>("status_message").ok().flatten();
     let session_version: i32 = row.try_get("session_version").unwrap_or(1);
     let is_active: bool      = row.try_get("is_active").unwrap_or(true);
+    let display_name = row
+        .try_get::<String, _>("display_name")
+        .unwrap_or(display_name);
+    let email = row.try_get::<Option<String>, _>("email").ok().flatten();
+    let department = row.try_get::<Option<String>, _>("department").ok().flatten();
+    let title = row.try_get::<Option<String>, _>("title").ok().flatten();
+    let phone = row.try_get::<Option<String>, _>("phone").ok().flatten();
     if !is_active {
         return Err("Ce compte est désactivé. Contactez votre administrateur.".into());
     }
@@ -503,50 +506,6 @@ fn uid_from_token(token: &str, secret: &str) -> Result<i32, String> {
     .map_err(|_| "Session expirée ou invalide".to_string())
 }
 
-fn is_preset_avatar_path(path: &str) -> bool {
-    const PREFIXES: &[&str] = &[
-        "/avatars/homme-jeune-",
-        "/avatars/homme-age-",
-        "/avatars/homme-barbu-",
-        "/avatars/femme-jeune-",
-        "/avatars/femme-agee-",
-        "/avatars/femme-tresses-",
-    ];
-    let Some(stem) = path.strip_suffix(".png") else {
-        return false;
-    };
-    for prefix in PREFIXES {
-        if let Some(num) = stem.strip_prefix(prefix) {
-            if num.len() == 2 && num.chars().all(|c| c.is_ascii_digit()) {
-                if let Ok(n) = num.parse::<u32>() {
-                    return (1..=10).contains(&n);
-                }
-            }
-        }
-    }
-    false
-}
-
-fn validate_avatar_value(value: &str) -> Result<(), String> {
-    let url = value.trim();
-    if url.is_empty() {
-        return Err("Image manquante.".into());
-    }
-    if is_preset_avatar_path(url) {
-        return Ok(());
-    }
-    if url.len() > 350_000 {
-        return Err("Photo trop lourde. Choisissez une image plus légère.".into());
-    }
-    let ok = url.starts_with("data:image/jpeg;base64,")
-        || url.starts_with("data:image/jpg;base64,")
-        || url.starts_with("data:image/png;base64,")
-        || url.starts_with("data:image/webp;base64,");
-    if !ok {
-        return Err("Format d’image non pris en charge (JPEG, PNG ou WebP).".into());
-    }
-    Ok(())
-}
 
 #[tauri::command]
 pub async fn cmd_update_my_avatar(
@@ -562,7 +521,7 @@ pub async fn cmd_update_my_avatar(
         )
     };
     let uid = uid_from_token(&token, &jwt_secret)?;
-    validate_avatar_value(&data_url)?;
+    crate::avatar::validate_avatar_value(&data_url)?;
 
     sqlx::query("UPDATE users SET avatar_path = $1, updated_at = NOW() WHERE id = $2")
         .bind(&data_url)
@@ -593,4 +552,93 @@ pub async fn cmd_clear_my_avatar(
         .await
         .map_err(|e| format!("Suppression de la photo : {e}"))?;
     Ok(())
+}
+
+fn optional_text(value: String, max: usize) -> Result<Option<String>, String> {
+    let t = value.trim();
+    if t.is_empty() {
+        return Ok(None);
+    }
+    if t.len() > max {
+        return Err(format!("Texte trop long ({max} caractères maximum)."));
+    }
+    Ok(Some(t.to_string()))
+}
+
+#[tauri::command]
+pub async fn cmd_update_my_profile(
+    token: String,
+    display_name: String,
+    email: String,
+    phone: String,
+    department: String,
+    title: String,
+    status_message: String,
+    state: State<'_, SharedState>,
+) -> Result<UserProfile, String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    let uid = uid_from_token(&token, &jwt_secret)?;
+
+    let display_name = display_name.trim().to_string();
+    if display_name.len() < 2 || display_name.len() > 255 {
+        return Err("Le nom affiché doit contenir entre 2 et 255 caractères.".into());
+    }
+    let email = optional_text(email, 255)?;
+    if let Some(ref mail) = email {
+        if !mail.contains('@') {
+            return Err("Adresse e-mail invalide.".into());
+        }
+    }
+    let phone = optional_text(phone, 100)?;
+    let department = optional_text(department, 255)?;
+    let title = optional_text(title, 255)?;
+    let status_message = optional_text(status_message, 140)?;
+
+    let row = sqlx::query(
+        r#"
+        UPDATE users
+        SET display_name = $1,
+            email = $2,
+            phone = $3,
+            department = $4,
+            title = $5,
+            status_message = $6,
+            updated_at = NOW()
+        WHERE id = $7
+        RETURNING id, username, display_name, email, department, title, phone,
+                  avatar_path, role, status_message, presence_status
+        "#,
+    )
+    .bind(&display_name)
+    .bind(&email)
+    .bind(&phone)
+    .bind(&department)
+    .bind(&title)
+    .bind(&status_message)
+    .bind(uid)
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| format!("Enregistrement du profil : {e}"))?;
+
+    Ok(UserProfile {
+        id: row.try_get("id").unwrap_or(uid),
+        username: row.try_get("username").unwrap_or_default(),
+        display_name: row.try_get("display_name").unwrap_or(display_name),
+        email: row.try_get("email").ok().flatten(),
+        department: row.try_get("department").ok().flatten(),
+        title: row.try_get("title").ok().flatten(),
+        phone: row.try_get("phone").ok().flatten(),
+        avatar_path: row.try_get("avatar_path").ok().flatten(),
+        role: row.try_get("role").unwrap_or_else(|_| "user".into()),
+        presence_status: row
+            .try_get("presence_status")
+            .unwrap_or_else(|_| "online".into()),
+        status_message: row.try_get("status_message").ok().flatten(),
+    })
 }
