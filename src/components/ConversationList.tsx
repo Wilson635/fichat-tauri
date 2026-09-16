@@ -210,6 +210,12 @@ export function ConversationList({ searchQuery }: Props) {
                     style={{ color: "var(--color-text-primary)" }}
                 >
                   {conv.name}
+                  {conv.adSyncKey === "employe" && (
+                    <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-md shrink-0"
+                      style={{ backgroundColor: "var(--color-active)", color: "var(--color-primary-700)" }}>
+                      AD
+                    </span>
+                  )}
                 </span>
                     <span
                         className="text-[11px] tabular-nums shrink-0 whitespace-nowrap"
@@ -233,7 +239,12 @@ export function ConversationList({ searchQuery }: Props) {
                     {conv.lastMessage ?? "Aucun message"}
                   </span>
                     </div>
-                    {conv.unreadCount > 0 && (
+                    {(conv.membership === "none" || conv.membership === "pending") ? (
+                        <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-md"
+                          style={{ backgroundColor: conv.membership === "pending" ? "rgba(245,158,11,0.15)" : "var(--color-active)", color: conv.membership === "pending" ? "#d97706" : "var(--color-primary-700)" }}>
+                          {conv.membership === "pending" ? "En attente" : "Rejoindre"}
+                        </span>
+                    ) : conv.unreadCount > 0 && (
                         <span
                             className="shrink-0 min-w-[18px] h-[18px] rounded-full flex items-center justify-center text-xs font-bold text-white px-1"
                             style={{ backgroundColor: "var(--color-primary-500)" }}

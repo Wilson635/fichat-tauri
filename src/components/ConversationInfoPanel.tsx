@@ -5,7 +5,6 @@ import { useChatStore } from "@/store/chatStore";
 import { chatService } from "@/services/chatService";
 import type { ConversationSummary, UserForChat, MediaItem, AttachmentDto } from "@/services/chatService";
 import { useResizable } from "@/hooks/useResizable";
-import { FilePreviewModal } from "@/components/FilePreviewModal";
 import { AttachmentVisualPreview, DocMetaRow } from "@/components/DocPreview";
 import { isImage, isVideo } from "@/utils/fileUtils";
 import { Icon, type IconName } from "@/components/Icon";
@@ -71,9 +70,10 @@ function InfoLine({
 interface Props {
   conversation: ConversationSummary;
   onClose: () => void;
+  onOpenFile?: (att: AttachmentDto) => void;
 }
 
-export function ConversationInfoPanel({ conversation, onClose }: Props) {
+export function ConversationInfoPanel({ conversation, onClose, onOpenFile }: Props) {
   const { user } = useAuthStore();
   const navigate = useNavigate();
   const { addGroupMember, removeGroupMember, updateGroupMemberRole } = useChatStore();
@@ -89,7 +89,6 @@ export function ConversationInfoPanel({ conversation, onClose }: Props) {
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [mediaLoading, setMediaLoading] = useState(false);
   const [mediaTab, setMediaTab] = useState<"photos" | "docs">("photos");
-  const [previewAtt, setPreviewAtt] = useState<{ att: AttachmentDto; senderName: string | null } | null>(null);
 
   const { size: panelWidth, dragHandleProps } = useResizable(360, 300, 560, "left");
 
@@ -115,6 +114,7 @@ export function ConversationInfoPanel({ conversation, onClose }: Props) {
   const members = conversation.participants;
   const currentMember = members.find((m) => m.userId === user?.id);
   const isAdmin = currentMember?.role === "admin";
+  const orgLocked = Boolean(conversation.adSyncKey);
   const memberIds = new Set(members.map((m) => m.userId));
   const usersById = useMemo(() => new Map(allUsers.map((u) => [u.id, u])), [allUsers]);
   const directory = other ? usersById.get(other.userId) : undefined;
@@ -181,7 +181,6 @@ export function ConversationInfoPanel({ conversation, onClose }: Props) {
       ];
 
   return (
-    <>
       <aside
         className="fichat-info-panel"
         style={{ width: panelWidth }}
@@ -305,7 +304,7 @@ export function ConversationInfoPanel({ conversation, onClose }: Props) {
                         key={item.id}
                         type="button"
                         className="aspect-square rounded-lg overflow-hidden"
-                        onClick={() => setPreviewAtt({ att: toAttachment(item), senderName: item.senderName })}
+                        onClick={() => onOpenFile?.(toAttachment(item))}
                         title={item.fileName}
                       >
                         {item.thumbnail ? (
@@ -327,7 +326,12 @@ export function ConversationInfoPanel({ conversation, onClose }: Props) {
 
           {tab === "members" && isGroup && (
             <div className="py-2">
-              {isAdmin && (
+              {orgLocked && (
+                <p className="text-[12px] px-4 py-2" style={{ color: "var(--color-text-muted)" }}>
+                  Appartenance gérée par l’Active Directory et les administrateurs FiEcho.
+                </p>
+              )}
+              {isAdmin && !orgLocked && (
                 <button
                   type="button"
                   onClick={() => setShowAddMember((v) => !v)}
@@ -412,7 +416,7 @@ export function ConversationInfoPanel({ conversation, onClose }: Props) {
                         {dir?.department ?? presenceLabel[m.presenceStatus] ?? ""}
                       </p>
                     </div>
-                    {isAdmin && !isMe && loadingMember !== m.userId && (
+                    {isAdmin && !orgLocked && !isMe && loadingMember !== m.userId && (
                       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
                         {m.role !== "admin" ? (
                           <button type="button" className="icon-btn" title="Promouvoir admin" onClick={() => handlePromote(m.userId)}>
@@ -435,6 +439,7 @@ export function ConversationInfoPanel({ conversation, onClose }: Props) {
                 );
               })}
 
+              {!orgLocked && (
               <div className="p-3 mt-2 border-t" style={{ borderColor: "var(--color-border)" }}>
                 {!confirmLeave ? (
                   <button
@@ -460,6 +465,7 @@ export function ConversationInfoPanel({ conversation, onClose }: Props) {
                   </div>
                 )}
               </div>
+              )}
             </div>
           )}
 
@@ -498,7 +504,7 @@ export function ConversationInfoPanel({ conversation, onClose }: Props) {
                       <button
                         key={item.id}
                         type="button"
-                        onClick={() => setPreviewAtt({ att: toAttachment(item), senderName: item.senderName })}
+                        onClick={() => onOpenFile?.(toAttachment(item))}
                         className="aspect-square rounded-lg overflow-hidden"
                         title={item.fileName}
                       >
@@ -521,7 +527,7 @@ export function ConversationInfoPanel({ conversation, onClose }: Props) {
                     <button
                       key={item.id}
                       type="button"
-                      onClick={() => setPreviewAtt({ att: toAttachment(item), senderName: item.senderName })}
+                      onClick={() => onOpenFile?.(toAttachment(item))}
                       className="w-full rounded-2xl border overflow-hidden text-left"
                       style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
                     >
@@ -541,14 +547,5 @@ export function ConversationInfoPanel({ conversation, onClose }: Props) {
           )}
         </div>
       </aside>
-
-      {previewAtt && (
-        <FilePreviewModal
-          attachment={previewAtt.att}
-          senderName={previewAtt.senderName}
-          onClose={() => setPreviewAtt(null)}
-        />
-      )}
-    </>
   );
 }

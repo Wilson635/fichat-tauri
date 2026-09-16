@@ -3,6 +3,7 @@ mod config;
 mod db;
 mod log_buffer;
 mod log_archive;
+mod ad_employee;
 mod pg_notify;
 mod ws;
 mod background;
@@ -96,6 +97,8 @@ pub fn run() {
             commands::admin::cmd_admin_create_user,
             commands::admin::cmd_admin_reset_local_password,
             commands::admin::cmd_admin_list_log_archives,
+            commands::admin::cmd_admin_list_join_requests,
+            commands::admin::cmd_admin_review_join_request,
             // ── Chat ─────────────────────────────────────
             commands::chat::cmd_get_ws_port,
             commands::chat::cmd_list_users,
@@ -111,6 +114,7 @@ pub fn run() {
             commands::chat::cmd_add_group_member,
             commands::chat::cmd_remove_group_member,
             commands::chat::cmd_update_member_role,
+            commands::chat::cmd_request_org_group_join,
             commands::chat::cmd_send_message_with_file,
             commands::chat::cmd_get_file_as_base64,
             commands::chat::cmd_get_attachment_data,

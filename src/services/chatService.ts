@@ -78,6 +78,8 @@ export interface ConversationSummary {
   unreadCount: number;
   participants: ParticipantInfo[];
   createdByName?: string | null;
+  adSyncKey?: string | null;
+  membership?: "member" | "none" | "pending";
 }
 
 export interface MessageSearchResult {
@@ -130,6 +132,8 @@ function mapConversation(raw: any): ConversationSummary {
       role: (p.role ?? "member") as "admin" | "member",
     })),
     createdByName: raw.created_by_name ?? raw.createdByName ?? null,
+    adSyncKey: raw.ad_sync_key ?? raw.adSyncKey ?? null,
+    membership: (raw.membership === "none" || raw.membership === "pending" ? raw.membership : "member") as ConversationSummary["membership"],
   };
 }
 
@@ -414,6 +418,16 @@ export const chatService = {
   },
 
   // ── Group member management ──────────────────────────────────────────────────
+
+  async requestOrgGroupJoin(conversationId: number): Promise<"member" | "pending"> {
+    if (!isTauri()) {
+      dbUpdateConversation(currentUid(), conversationId, { membership: "pending" });
+      return "pending";
+    }
+    const token = useAuthStore.getState().token!;
+    const status = await invoke<string>("cmd_request_org_group_join", { token, conversationId });
+    return status === "member" ? "member" : "pending";
+  },
 
   async addGroupMember(conversationId: number, userId: number): Promise<void> {
     if (!isTauri()) {

@@ -171,6 +171,10 @@ pub async fn cmd_ldap_login(
         return Err("Ce compte est désactivé. Contactez votre administrateur.".into());
     }
 
+    if let Err(e) = crate::ad_employee::sync_user_from_ad(&pool, user_id, &username).await {
+        tracing::warn!("Groupe Employé à la connexion : {e}");
+    }
+
     finish_login(
         &pool,
         &jwt_secret,

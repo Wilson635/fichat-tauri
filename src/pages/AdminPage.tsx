@@ -27,7 +27,7 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
   throw new Error("mock");
 }
 
-type AdminTab = "stats" | "users" | "sync" | "logs" | "settings";
+type AdminTab = "stats" | "users" | "joins" | "sync" | "logs" | "settings";
 
 interface AdminUser {
   id: number;
@@ -82,6 +82,7 @@ const MOCK_SYNC_HISTORY: SyncHistoryEntry[] = [
 const NAV: { id: AdminTab; label: string; hint: string; icon: IconName }[] = [
   { id: "stats", label: "Vue d’ensemble", hint: "Indicateurs et graphiques", icon: "globe" },
   { id: "users", label: "Utilisateurs", hint: "Rôles et comptes", icon: "users" },
+  { id: "joins", label: "Demandes", hint: "Groupe Employé", icon: "userPlus" },
   { id: "sync", label: "Active Directory", hint: "Synchronisation LDAP", icon: "refresh" },
   { id: "settings", label: "Réglages", hint: "Base, LDAP, journaux", icon: "settings" },
   { id: "logs", label: "Journal", hint: "Logs runtime exportables", icon: "file" },
@@ -807,6 +808,167 @@ function UsersTab() {
   );
 }
 
+interface JoinRequestRow {
+  id: number;
+  userId: number;
+  username: string;
+  displayName: string;
+  email: string | null;
+  status: string;
+  createdAt: string;
+}
+
+const MOCK_JOIN_REQUESTS: JoinRequestRow[] = [
+  {
+    id: 1,
+    userId: 6,
+    username: "emma.rousseau",
+    displayName: "Emma Rousseau",
+    email: "e.rousseau@firsttrust.cm",
+    status: "pending",
+    createdAt: new Date().toISOString(),
+  },
+];
+
+function JoinRequestsTab() {
+  const { token } = useAuthStore();
+  const [rows, setRows] = useState<JoinRequestRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    invoke<JoinRequestRow[]>("cmd_admin_list_join_requests", { token })
+      .then(setRows)
+      .catch(() => setRows(MOCK_JOIN_REQUESTS))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const review = async (id: number, approve: boolean) => {
+    setBusyId(id);
+    setError(null);
+    try {
+      await invoke("cmd_admin_review_join_request", { token, requestId: id, approve });
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === id ? { ...r, status: approve ? "approved" : "rejected" } : r,
+        ),
+      );
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const pending = rows.filter((r) => r.status === "pending");
+  const done = rows.filter((r) => r.status !== "pending");
+
+  return (
+    <div>
+      <SectionIntro
+        title="Demandes d’adhésion — Employé"
+        hint="Comptes absents de l’Active Directory (ou comptes machine exclus). Seuls les administrateurs FiEcho peuvent les traiter."
+      />
+      {error && (
+        <p className="text-[13px] mb-3" style={{ color: "#dc2626" }}>{error}</p>
+      )}
+      {loading ? (
+        <div className="flex justify-center py-12"><Spinner /></div>
+      ) : (
+        <div className="space-y-4">
+          <AdminCard>
+            <div className="px-4 py-3 border-b" style={{ borderColor: "var(--color-border)" }}>
+              <h3 className="text-[13px] font-semibold" style={{ color: "var(--color-text-primary)" }}>
+                En attente ({pending.length})
+              </h3>
+            </div>
+            {pending.length === 0 ? (
+              <p className="text-[13px] text-center py-8" style={{ color: "var(--color-text-muted)" }}>
+                Aucune demande en attente
+              </p>
+            ) : (
+              <div className="divide-y" style={{ borderColor: "var(--color-border)" }}>
+                {pending.map((r) => (
+                  <div key={r.id} className="flex items-center gap-3 px-4 py-3">
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-[11px] font-semibold shrink-0"
+                      style={{ backgroundColor: `hsl(${hueOf(r.displayName)}, 42%, 42%)` }}
+                    >
+                      {initialsOf(r.displayName)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-semibold truncate" style={{ color: "var(--color-text-primary)" }}>
+                        {r.displayName}
+                      </p>
+                      <p className="text-[11px] truncate" style={{ color: "var(--color-text-muted)" }}>
+                        {r.username}{r.email ? ` · ${r.email}` : ""} · {timeAgo(r.createdAt)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        disabled={busyId === r.id}
+                        onClick={() => review(r.id, false)}
+                        className="h-8 px-3 rounded-lg text-[12px] font-semibold border disabled:opacity-50"
+                        style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}
+                      >
+                        Refuser
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busyId === r.id}
+                        onClick={() => review(r.id, true)}
+                        className="h-8 px-3 rounded-lg text-[12px] font-semibold text-white disabled:opacity-50"
+                        style={{ backgroundColor: "var(--color-primary-500)" }}
+                      >
+                        Accepter
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </AdminCard>
+          {done.length > 0 && (
+            <AdminCard>
+              <div className="px-4 py-3 border-b" style={{ borderColor: "var(--color-border)" }}>
+                <h3 className="text-[13px] font-semibold" style={{ color: "var(--color-text-primary)" }}>
+                  Traitées récemment
+                </h3>
+              </div>
+              <div className="divide-y" style={{ borderColor: "var(--color-border)" }}>
+                {done.map((r) => (
+                  <div key={r.id} className="flex items-center gap-3 px-4 py-2.5">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-medium truncate" style={{ color: "var(--color-text-primary)" }}>
+                        {r.displayName}
+                      </p>
+                      <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>{r.username}</p>
+                    </div>
+                    <span
+                      className="text-[11px] font-semibold px-2 py-0.5 rounded-md"
+                      style={{
+                        backgroundColor: r.status === "approved" ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
+                        color: r.status === "approved" ? "#16a34a" : "#dc2626",
+                      }}
+                    >
+                      {r.status === "approved" ? "Acceptée" : "Refusée"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </AdminCard>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SyncTab() {
   const { token } = useAuthStore();
   const { config } = useAppStore();
@@ -1465,6 +1627,7 @@ export function AdminPage() {
           <div className={`admin-pad ${section === "logs" ? "flex-1 min-h-0 flex flex-col" : ""}`}>
             {section === "stats" && <StatsTab />}
             {section === "users" && <UsersTab />}
+            {section === "joins" && <JoinRequestsTab />}
             {section === "sync" && <SyncTab />}
             {section === "settings" && <SettingsTab />}
             {section === "logs" && <LogsTab />}

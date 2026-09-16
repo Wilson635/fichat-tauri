@@ -487,6 +487,9 @@ pub async fn cmd_admin_sync_ad(
                 Some(u) => u,
                 None => continue,
             };
+            if crate::ad_employee::is_machine_account(&username) {
+                continue;
+            }
             let display_name = get_attr("displayName").unwrap_or_else(|| username.clone());
             let email        = get_attr("mail");
             let department   = get_attr("department");
@@ -575,6 +578,12 @@ pub async fn cmd_admin_sync_ad(
         } else {
             0
         };
+
+        if !dry_run {
+            if let Err(e) = crate::ad_employee::sync_all_ad_users(&pool).await {
+                tracing::warn!("{e}");
+            }
+        }
 
         Ok(SyncResult { added, updated, disabled })
     }
@@ -895,4 +904,115 @@ pub async fn cmd_admin_list_log_archives(
             }
         })
         .collect())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JoinRequestRow {
+    pub id: i32,
+    pub user_id: i32,
+    pub username: String,
+    pub display_name: String,
+    pub email: Option<String>,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[tauri::command]
+pub async fn cmd_admin_list_join_requests(
+    token: String,
+    state: State<'_, SharedState>,
+) -> Result<Vec<JoinRequestRow>, String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    require_admin(&token, &jwt_secret)?;
+    let (gid, _) = crate::ad_employee::ensure_group(&pool).await?;
+    let rows = sqlx::query(
+        r#"
+        SELECT r.id, r.user_id, u.username, u.display_name, u.email, r.status, r.created_at
+        FROM group_join_requests r
+        JOIN users u ON u.id = r.user_id
+        WHERE r.group_id = $1
+        ORDER BY CASE r.status WHEN 'pending' THEN 0 ELSE 1 END, r.created_at DESC
+        LIMIT 100
+        "#,
+    )
+    .bind(gid)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("Demandes d’adhésion : {e}"))?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| JoinRequestRow {
+            id: row.try_get("id").unwrap_or(0),
+            user_id: row.try_get("user_id").unwrap_or(0),
+            username: row.try_get("username").unwrap_or_default(),
+            display_name: row.try_get("display_name").unwrap_or_default(),
+            email: row.try_get("email").ok().flatten(),
+            status: row.try_get("status").unwrap_or_default(),
+            created_at: row.try_get("created_at").unwrap_or_else(|_| Utc::now()),
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn cmd_admin_review_join_request(
+    token: String,
+    request_id: i32,
+    approve: bool,
+    state: State<'_, SharedState>,
+) -> Result<(), String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    let admin_id = require_admin(&token, &jwt_secret)?;
+    let (gid, _) = crate::ad_employee::ensure_group(&pool).await?;
+
+    let row = sqlx::query(
+        "SELECT id, user_id, status FROM group_join_requests WHERE id = $1 AND group_id = $2",
+    )
+    .bind(request_id)
+    .bind(gid)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| format!("Demande : {e}"))?
+    .ok_or_else(|| "Demande introuvable.".to_string())?;
+
+    let user_id: i32 = row.try_get("user_id").unwrap_or(0);
+    let status: String = row.try_get("status").unwrap_or_default();
+    if status != "pending" {
+        return Err("Cette demande a déjà été traitée.".into());
+    }
+
+    if approve {
+        crate::ad_employee::add_user(&pool, user_id, "admin").await?;
+        sqlx::query(
+            "UPDATE group_join_requests SET status = 'approved', reviewed_at = NOW(), reviewed_by = $2 WHERE id = $1",
+        )
+        .bind(request_id)
+        .bind(admin_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| format!("Approbation : {e}"))?;
+    } else {
+        sqlx::query(
+            "UPDATE group_join_requests SET status = 'rejected', reviewed_at = NOW(), reviewed_by = $2 WHERE id = $1",
+        )
+        .bind(request_id)
+        .bind(admin_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| format!("Refus : {e}"))?;
+    }
+    Ok(())
 }

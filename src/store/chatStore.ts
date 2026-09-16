@@ -37,6 +37,7 @@ interface ChatState {
   addGroupMember: (conversationId: number, userId: number) => Promise<void>;
   removeGroupMember: (conversationId: number, userId: number) => Promise<void>;
   updateGroupMemberRole: (conversationId: number, userId: number, role: "admin" | "member") => Promise<void>;
+  requestOrgGroupJoin: (conversationId: number) => Promise<void>;
 }
 
 let wsUnsubscribe: (() => void) | null = null;
@@ -455,6 +456,15 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     }));
   },
 
+  requestOrgGroupJoin: async (conversationId) => {
+    const status = await chatService.requestOrgGroupJoin(conversationId);
+    set((s) => ({
+      conversations: s.conversations.map((c) =>
+        c.id === conversationId ? { ...c, membership: status } : c
+      ),
+    }));
+  },
+
   // ── Navigation ────────────────────────────────────────────────────────────
   setCurrentConversation: (id) => set({ currentConversationId: id }),
   setSearchQuery: (q) => set({ searchQuery: q }),
@@ -477,12 +487,14 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   handleWsEvent: (event) => {
     switch (event.type) {
       case "auth_ok": {
-        // WS (re)connecté — on recharge les conversations et les messages de la conv active
-        get().loadConversations();
-        const activeCid = get().currentConversationId;
-        if (activeCid) {
-          get().loadMessages(activeCid);
-        }
+        void get().loadConversations().then(() => {
+          const activeCid = get().currentConversationId;
+          const conv = get().conversations.find((c) => c.id === activeCid);
+          const locked = conv?.membership === "none" || conv?.membership === "pending";
+          if (activeCid && !locked) {
+            void get().loadMessages(activeCid);
+          }
+        });
         break;
       }
 

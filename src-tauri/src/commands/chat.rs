@@ -45,6 +45,8 @@ pub struct ConversationSummary {
     pub unread_count: i64,
     pub participants: Vec<ParticipantInfo>,
     pub created_by_name: Option<String>,
+    pub ad_sync_key: Option<String>,
+    pub membership: String,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -134,6 +136,7 @@ pub async fn cmd_get_conversations(
                 )
                 ELSE NULL
             END                                                           AS created_by_name,
+            g.ad_sync_key                                                 AS ad_sync_key,
             (
                 SELECT CASE
                     WHEN m.message_type = 'voice' THEN '🎤 Message vocal'
@@ -245,7 +248,38 @@ pub async fn cmd_get_conversations(
             unread_count,
             participants,
             created_by_name: row.try_get("created_by_name").ok().flatten(),
+            ad_sync_key: row.try_get("ad_sync_key").ok().flatten(),
+            membership: "member".into(),
         });
+    }
+
+    if let Ok((gid, cid)) = crate::ad_employee::ensure_group(&pool).await {
+        let status = crate::ad_employee::join_status(&pool, uid, gid, cid).await;
+        if let Some(pos) = conversations.iter().position(|c| c.id == cid) {
+            conversations[pos].ad_sync_key = Some(crate::ad_employee::AD_SYNC_KEY.into());
+            conversations[pos].membership = "member".into();
+            let g = conversations.remove(pos);
+            conversations.insert(0, g);
+        } else {
+            conversations.insert(
+                0,
+                ConversationSummary {
+                    id: cid,
+                    conv_type: "group".into(),
+                    name: crate::ad_employee::DISPLAY_NAME.into(),
+                    avatar_path: None,
+                    last_message: Some(
+                        "Groupe des employés. Demandez l’accès aux administrateurs FiEcho.".into(),
+                    ),
+                    last_message_at: None,
+                    unread_count: 0,
+                    participants: Vec::new(),
+                    created_by_name: None,
+                    ad_sync_key: Some(crate::ad_employee::AD_SYNC_KEY.into()),
+                    membership: status,
+                },
+            );
+        }
     }
 
     Ok(conversations)
@@ -898,6 +932,10 @@ pub async fn cmd_add_group_member(
     .map(|(g,)| g)
     .map_err(|e| { tracing::error!("cmd_add_group_member: conv {} not a group: {}", conversation_id, e); format!("Conversation introuvable ou pas un groupe: {e}") })?;
 
+    if crate::ad_employee::membership_locked(&pool, group_id).await {
+        return Err("L’appartenance au groupe Employé est gérée par l’Active Directory et les administrateurs FiEcho.".into());
+    }
+
     // Verify requester is admin
     let is_admin: bool = sqlx::query_as::<_, (bool,)>(
         "SELECT EXISTS(SELECT 1 FROM group_members WHERE group_id=$1 AND user_id=$2 AND role='admin')",
@@ -992,6 +1030,10 @@ pub async fn cmd_remove_group_member(
     .await
     .map(|(g,)| g)
     .map_err(|e| format!("Conversation introuvable ou pas un groupe: {e}"))?;
+
+    if crate::ad_employee::membership_locked(&pool, group_id).await {
+        return Err("L’appartenance au groupe Employé est gérée par l’Active Directory et les administrateurs FiEcho.".into());
+    }
 
     // Must be admin OR removing oneself
     let is_admin: bool = sqlx::query_as::<_, (bool,)>(
@@ -1090,6 +1132,10 @@ pub async fn cmd_update_member_role(
     .map(|(g,)| g)
     .map_err(|e| format!("Conversation introuvable ou pas un groupe: {e}"))?;
 
+    if crate::ad_employee::membership_locked(&pool, group_id).await {
+        return Err("L’appartenance au groupe Employé est gérée par l’Active Directory et les administrateurs FiEcho.".into());
+    }
+
     // Must be admin
     let is_admin: bool = sqlx::query_as::<_, (bool,)>(
         "SELECT EXISTS(SELECT 1 FROM group_members WHERE group_id=$1 AND user_id=$2 AND role='admin')",
@@ -1117,6 +1163,28 @@ pub async fn cmd_update_member_role(
 
     tracing::info!("cmd_update_member_role: user {} → rôle {} dans groupe {}", user_id, role, group_id);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn cmd_request_org_group_join(
+    token: String,
+    conversation_id: i32,
+    state: State<'_, SharedState>,
+) -> Result<String, String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    let uid = extract_uid(&token, &jwt_secret)?;
+    let (gid, cid) = crate::ad_employee::ensure_group(&pool).await?;
+    if conversation_id != cid {
+        return Err("Cette demande ne concerne que le groupe Employé.".into());
+    }
+    let _ = gid;
+    crate::ad_employee::request_join(&pool, uid).await
 }
 
 // ─── SEARCH MESSAGES (in conversation) ───────────────────────────────────────

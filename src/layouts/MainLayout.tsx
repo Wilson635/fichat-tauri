@@ -8,6 +8,7 @@ import { useChatStore } from "@/store/chatStore";
 import { useNotificationStore } from "@/store/notificationStore";
 import { requestNotificationPermission } from "@/services/notificationService";
 import { isTauri } from "@/services/chatService";
+import { AppToasts } from "@/components/AppToasts";
 
 export function MainLayout() {
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
@@ -85,6 +86,7 @@ export function MainLayout() {
       <main className="flex-1 overflow-hidden relative min-w-0">
         <Outlet />
       </main>
+      <AppToasts />
       <PriorityNotificationModal />
       <MessageActionsModal />
       {showGlobalSearch && (

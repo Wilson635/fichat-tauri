@@ -17,6 +17,14 @@
     "store:default",
     "dialog:default",
     "fs:default",
+    {
+      "identifier": "fs:allow-write-file",
+      "allow": [{ "path": "$DOWNLOAD/**" }]
+    },
+    {
+      "identifier": "fs:allow-exists",
+      "allow": [{ "path": "$DOWNLOAD/**" }]
+    },
     "shell:default"
   ]
 }

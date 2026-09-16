@@ -83,6 +83,12 @@ pub async fn apply_config(
         .map_err(|e| format!("Migration : {e}"))?;
 
     log_archive::set_backend(pool.clone(), cfg.runtime_log_dir.clone());
+    if let Err(e) = crate::ad_employee::ensure_group(&pool).await {
+        tracing::warn!("{e}");
+    }
+    if let Err(e) = crate::ad_employee::sync_all_ad_users(&pool).await {
+        tracing::warn!("Peuplement du groupe Employé : {e}");
+    }
 
     let jwt_secret = {
         let s = state.lock().await;

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AttachmentDto } from "@/services/chatService";
 import { chatService, isTauri } from "@/services/chatService";
+import { useToastStore } from "@/store/toastStore";
 
 const blobCache = new Map<number, string>();
 const inflight = new Map<number, Promise<string>>();
@@ -86,14 +87,58 @@ export async function getAttachmentObjectUrl(att: AttachmentDto): Promise<string
   return promise;
 }
 
-export async function downloadAttachment(att: AttachmentDto): Promise<void> {
+function safeFileName(name: string): string {
+  return name.replace(/[\\/:*?"<>|]/g, "_").trim() || "fichier";
+}
+
+async function uniqueDownloadName(name: string): Promise<string> {
+  const { exists, BaseDirectory } = await import("@tauri-apps/plugin-fs");
+  const base = safeFileName(name);
+  const dot = base.lastIndexOf(".");
+  const stem = dot > 0 ? base.slice(0, dot) : base;
+  const ext = dot > 0 ? base.slice(dot) : "";
+  let dest = base;
+  let n = 1;
+  while (await exists(dest, { baseDir: BaseDirectory.Download })) {
+    dest = `${stem} (${n})${ext}`;
+    n += 1;
+    if (n > 80) break;
+  }
+  return dest;
+}
+
+export async function downloadAttachment(att: AttachmentDto): Promise<string> {
   const url = await getAttachmentObjectUrl(att);
+  const notify = (detail: string) => {
+    useToastStore.getState().push({
+      kind: "success",
+      title: "Fichier téléchargé",
+      detail,
+    });
+  };
+
+  if (isTauri()) {
+    try {
+      const blob = await fetch(url).then((r) => r.blob());
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const { writeFile, BaseDirectory } = await import("@tauri-apps/plugin-fs");
+      const dest = await uniqueDownloadName(att.fileName);
+      await writeFile(dest, bytes, { baseDir: BaseDirectory.Download });
+      notify(dest);
+      return dest;
+    } catch (e) {
+      console.warn("Enregistrement Téléchargements :", e);
+    }
+  }
+
   const a = document.createElement("a");
   a.href = url;
   a.download = att.fileName;
   document.body.appendChild(a);
   a.click();
   a.remove();
+  notify(att.fileName);
+  return att.fileName;
 }
 
 export function previewSrc(att: AttachmentDto): string | null {
