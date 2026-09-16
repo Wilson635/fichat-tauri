@@ -39,12 +39,15 @@ pub struct ConversationSummary {
     pub id: i32,
     pub conv_type: String,
     pub name: String,
+    pub description: Option<String>,
     pub avatar_path: Option<String>,
     pub last_message: Option<String>,
     pub last_message_at: Option<DateTime<Utc>>,
     pub unread_count: i64,
     pub participants: Vec<ParticipantInfo>,
     pub created_by_name: Option<String>,
+    pub ad_sync_key: Option<String>,
+    pub membership: String,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -134,6 +137,8 @@ pub async fn cmd_get_conversations(
                 )
                 ELSE NULL
             END                                                           AS created_by_name,
+            g.ad_sync_key                                                 AS ad_sync_key,
+            g.description                                                 AS description,
             (
                 SELECT CASE
                     WHEN m.message_type = 'voice' THEN '🎤 Message vocal'
@@ -239,13 +244,54 @@ pub async fn cmd_get_conversations(
             id: conv_id,
             conv_type,
             name,
+            description: row.try_get("description").ok().flatten(),
             avatar_path,
             last_message,
             last_message_at,
             unread_count,
             participants,
             created_by_name: row.try_get("created_by_name").ok().flatten(),
+            ad_sync_key: row.try_get("ad_sync_key").ok().flatten(),
+            membership: "member".into(),
         });
+    }
+
+    if let Ok((gid, cid)) = crate::ad_employee::ensure_group(&pool).await {
+        let status = crate::ad_employee::join_status(&pool, uid, gid, cid).await;
+        if let Some(pos) = conversations.iter().position(|c| c.id == cid) {
+            conversations[pos].ad_sync_key = Some(crate::ad_employee::AD_SYNC_KEY.into());
+            conversations[pos].membership = "member".into();
+            let g = conversations.remove(pos);
+            conversations.insert(0, g);
+        } else {
+            let (gname, gdesc, gavatar): (String, Option<String>, Option<String>) =
+                sqlx::query_as(
+                    "SELECT name, description, avatar_path FROM groups WHERE id = $1",
+                )
+                .bind(gid)
+                .fetch_one(&pool)
+                .await
+                .unwrap_or_else(|_| (crate::ad_employee::DISPLAY_NAME.into(), None, None));
+            conversations.insert(
+                0,
+                ConversationSummary {
+                    id: cid,
+                    conv_type: "group".into(),
+                    name: gname,
+                    description: gdesc,
+                    avatar_path: gavatar,
+                    last_message: Some(
+                        "Groupe des employés. Demandez l’accès aux administrateurs FiEcho.".into(),
+                    ),
+                    last_message_at: None,
+                    unread_count: 0,
+                    participants: Vec::new(),
+                    created_by_name: None,
+                    ad_sync_key: Some(crate::ad_employee::AD_SYNC_KEY.into()),
+                    membership: status,
+                },
+            );
+        }
     }
 
     Ok(conversations)
@@ -868,6 +914,104 @@ pub async fn cmd_create_group_conversation(
     Ok(conv_id)
 }
 
+async fn can_manage_group(pool: &sqlx::PgPool, uid: i32, group_id: i32) -> bool {
+    let is_group_admin: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2 AND role = 'admin')",
+    )
+    .bind(group_id)
+    .bind(uid)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(false);
+    if is_group_admin {
+        return true;
+    }
+    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND role = 'system_admin')")
+        .bind(uid)
+        .fetch_one(pool)
+        .await
+        .unwrap_or(false)
+}
+
+#[derive(Debug, Serialize)]
+pub struct GroupUpdateResult {
+    pub name: String,
+    pub description: Option<String>,
+    pub avatar_path: Option<String>,
+}
+
+#[tauri::command]
+pub async fn cmd_update_group(
+    token: String,
+    conversation_id: i32,
+    name: String,
+    description: String,
+    avatar_path: Option<String>,
+    state: State<'_, SharedState>,
+) -> Result<GroupUpdateResult, String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    let uid = extract_uid(&token, &jwt_secret)?;
+
+    let group_id: i32 = sqlx::query_as::<_, (i32,)>(
+        "SELECT group_id FROM conversations WHERE id = $1 AND type = 'group'",
+    )
+    .bind(conversation_id)
+    .fetch_one(&pool)
+    .await
+    .map(|(g,)| g)
+    .map_err(|_| "Conversation introuvable ou ce n’est pas un groupe.".to_string())?;
+
+    if !can_manage_group(&pool, uid, group_id).await {
+        return Err("Seul un administrateur du groupe peut modifier ces informations.".into());
+    }
+
+    let name = name.trim().to_string();
+    if name.len() < 2 || name.len() > 80 {
+        return Err("Le nom du groupe doit contenir entre 2 et 80 caractères.".into());
+    }
+    let description = {
+        let t = description.trim();
+        if t.is_empty() {
+            None
+        } else if t.len() > 500 {
+            return Err("La description est trop longue (500 caractères maximum).".into());
+        } else {
+            Some(t.to_string())
+        }
+    };
+    let avatar = match avatar_path {
+        Some(v) if v.trim().is_empty() => None,
+        Some(v) => {
+            crate::avatar::validate_avatar_value(&v)?;
+            Some(v)
+        }
+        None => None,
+    };
+
+    sqlx::query(
+        "UPDATE groups SET name = $1, description = $2, avatar_path = $3, updated_at = NOW() WHERE id = $4",
+    )
+    .bind(&name)
+    .bind(&description)
+    .bind(&avatar)
+    .bind(group_id)
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("Enregistrement du groupe : {e}"))?;
+
+    Ok(GroupUpdateResult {
+        name,
+        description,
+        avatar_path: avatar,
+    })
+}
+
 // ─── ADD GROUP MEMBER ─────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -897,6 +1041,10 @@ pub async fn cmd_add_group_member(
     .await
     .map(|(g,)| g)
     .map_err(|e| { tracing::error!("cmd_add_group_member: conv {} not a group: {}", conversation_id, e); format!("Conversation introuvable ou pas un groupe: {e}") })?;
+
+    if crate::ad_employee::membership_locked(&pool, group_id).await {
+        return Err("L’appartenance au groupe Employé est gérée par l’Active Directory et les administrateurs FiEcho.".into());
+    }
 
     // Verify requester is admin
     let is_admin: bool = sqlx::query_as::<_, (bool,)>(
@@ -992,6 +1140,10 @@ pub async fn cmd_remove_group_member(
     .await
     .map(|(g,)| g)
     .map_err(|e| format!("Conversation introuvable ou pas un groupe: {e}"))?;
+
+    if crate::ad_employee::membership_locked(&pool, group_id).await {
+        return Err("L’appartenance au groupe Employé est gérée par l’Active Directory et les administrateurs FiEcho.".into());
+    }
 
     // Must be admin OR removing oneself
     let is_admin: bool = sqlx::query_as::<_, (bool,)>(
@@ -1090,6 +1242,10 @@ pub async fn cmd_update_member_role(
     .map(|(g,)| g)
     .map_err(|e| format!("Conversation introuvable ou pas un groupe: {e}"))?;
 
+    if crate::ad_employee::membership_locked(&pool, group_id).await {
+        return Err("L’appartenance au groupe Employé est gérée par l’Active Directory et les administrateurs FiEcho.".into());
+    }
+
     // Must be admin
     let is_admin: bool = sqlx::query_as::<_, (bool,)>(
         "SELECT EXISTS(SELECT 1 FROM group_members WHERE group_id=$1 AND user_id=$2 AND role='admin')",
@@ -1117,6 +1273,28 @@ pub async fn cmd_update_member_role(
 
     tracing::info!("cmd_update_member_role: user {} → rôle {} dans groupe {}", user_id, role, group_id);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn cmd_request_org_group_join(
+    token: String,
+    conversation_id: i32,
+    state: State<'_, SharedState>,
+) -> Result<String, String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    let uid = extract_uid(&token, &jwt_secret)?;
+    let (gid, cid) = crate::ad_employee::ensure_group(&pool).await?;
+    if conversation_id != cid {
+        return Err("Cette demande ne concerne que le groupe Employé.".into());
+    }
+    let _ = gid;
+    crate::ad_employee::request_join(&pool, uid).await
 }
 
 // ─── SEARCH MESSAGES (in conversation) ───────────────────────────────────────

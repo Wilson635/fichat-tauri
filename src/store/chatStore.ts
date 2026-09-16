@@ -37,6 +37,8 @@ interface ChatState {
   addGroupMember: (conversationId: number, userId: number) => Promise<void>;
   removeGroupMember: (conversationId: number, userId: number) => Promise<void>;
   updateGroupMemberRole: (conversationId: number, userId: number, role: "admin" | "member") => Promise<void>;
+  updateGroup: (conversationId: number, name: string, description: string, avatarPath: string | null) => Promise<void>;
+  requestOrgGroupJoin: (conversationId: number) => Promise<void>;
 }
 
 let wsUnsubscribe: (() => void) | null = null;
@@ -455,6 +457,26 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     }));
   },
 
+  updateGroup: async (conversationId, name, description, avatarPath) => {
+    const updated = await chatService.updateGroup(conversationId, name, description, avatarPath);
+    set((s) => ({
+      conversations: s.conversations.map((c) =>
+        c.id === conversationId
+          ? { ...c, name: updated.name, description: updated.description, avatarPath: updated.avatarPath }
+          : c
+      ),
+    }));
+  },
+
+  requestOrgGroupJoin: async (conversationId) => {
+    const status = await chatService.requestOrgGroupJoin(conversationId);
+    set((s) => ({
+      conversations: s.conversations.map((c) =>
+        c.id === conversationId ? { ...c, membership: status } : c
+      ),
+    }));
+  },
+
   // ── Navigation ────────────────────────────────────────────────────────────
   setCurrentConversation: (id) => set({ currentConversationId: id }),
   setSearchQuery: (q) => set({ searchQuery: q }),
@@ -477,12 +499,14 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   handleWsEvent: (event) => {
     switch (event.type) {
       case "auth_ok": {
-        // WS (re)connecté — on recharge les conversations et les messages de la conv active
-        get().loadConversations();
-        const activeCid = get().currentConversationId;
-        if (activeCid) {
-          get().loadMessages(activeCid);
-        }
+        void get().loadConversations().then(() => {
+          const activeCid = get().currentConversationId;
+          const conv = get().conversations.find((c) => c.id === activeCid);
+          const locked = conv?.membership === "none" || conv?.membership === "pending";
+          if (activeCid && !locked) {
+            void get().loadMessages(activeCid);
+          }
+        });
         break;
       }
 

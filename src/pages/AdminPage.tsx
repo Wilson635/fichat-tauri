@@ -12,6 +12,8 @@ import { Icon, type IconName } from "@/components/Icon";
 import { useRuntimeLogStore, formatLogLine, type RuntimeLog } from "@/store/runtimeLogStore";
 import { dbEngineLabel } from "@/utils/dbEngine";
 import { APP_NAME } from "@/brand";
+import { CreateUserModal, ResetPasswordModal } from "@/components/CreateUserModal";
+import { authService, toStoreConfig } from "@/services/authService";
 
 function isTauri(): boolean {
   return typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
@@ -25,7 +27,7 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
   throw new Error("mock");
 }
 
-type AdminTab = "stats" | "users" | "sync" | "logs";
+type AdminTab = "stats" | "users" | "joins" | "sync" | "logs" | "settings";
 
 interface AdminUser {
   id: number;
@@ -37,6 +39,7 @@ interface AdminUser {
   isActive: boolean;
   presenceStatus: string;
   lastSeen: string | null;
+  authSource: string;
 }
 
 interface AdminStats {
@@ -64,9 +67,9 @@ interface SyncResult {
 }
 
 const MOCK_USERS: AdminUser[] = [
-  { id: 1, username: "admin", displayName: "Admin Système", email: "admin@firsttrust.cm", department: "IT", role: "system_admin", isActive: true, presenceStatus: "online", lastSeen: null },
-  { id: 2, username: "alice.martin", displayName: "Alice Martin", email: "a.martin@firsttrust.cm", department: "Développement", role: "user", isActive: true, presenceStatus: "online", lastSeen: null },
-  { id: 3, username: "bob.dupont", displayName: "Bob Dupont", email: "b.dupont@firsttrust.cm", department: "Commercial", role: "user", isActive: true, presenceStatus: "away", lastSeen: null },
+  { id: 1, username: "admin", displayName: "Admin Système", email: "admin@firsttrust.cm", department: "IT", role: "system_admin", isActive: true, presenceStatus: "online", lastSeen: null, authSource: "local" },
+  { id: 2, username: "alice.martin", displayName: "Alice Martin", email: "a.martin@firsttrust.cm", department: "Développement", role: "user", isActive: true, presenceStatus: "online", lastSeen: null, authSource: "ad" },
+  { id: 3, username: "bob.dupont", displayName: "Bob Dupont", email: "b.dupont@firsttrust.cm", department: "Commercial", role: "user", isActive: true, presenceStatus: "away", lastSeen: null, authSource: "ad" },
 ];
 
 const MOCK_STATS: AdminStats = { totalUsers: 8, activeUsersToday: 5, totalMessagesToday: 142, totalGroups: 4 };
@@ -79,7 +82,9 @@ const MOCK_SYNC_HISTORY: SyncHistoryEntry[] = [
 const NAV: { id: AdminTab; label: string; hint: string; icon: IconName }[] = [
   { id: "stats", label: "Vue d’ensemble", hint: "Indicateurs et graphiques", icon: "globe" },
   { id: "users", label: "Utilisateurs", hint: "Rôles et comptes", icon: "users" },
+  { id: "joins", label: "Demandes", hint: "Groupe Employé", icon: "userPlus" },
   { id: "sync", label: "Active Directory", hint: "Synchronisation LDAP", icon: "refresh" },
+  { id: "settings", label: "Réglages", hint: "Base, LDAP, journaux", icon: "settings" },
   { id: "logs", label: "Journal", hint: "Logs runtime exportables", icon: "file" },
 ];
 
@@ -499,6 +504,10 @@ function UsersTab() {
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [resetUser, setResetUser] = useState<AdminUser | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -571,7 +580,7 @@ function UsersTab() {
 
   return (
     <div className="space-y-4">
-      <SectionIntro title="Utilisateurs" hint="Rôles administrateur, activation des comptes et présence." />
+      <SectionIntro title="Utilisateurs" hint="Comptes Active Directory et comptes locaux créés hors annuaire." />
 
       {error && (
         <div className="px-4 py-2 rounded-xl text-sm" style={{ backgroundColor: "rgba(239,68,68,0.1)", color: "#dc2626" }}>
@@ -599,6 +608,14 @@ function UsersTab() {
           style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}>
           <Icon name="refresh" size={14} /> Actualiser
         </button>
+        <button
+          type="button"
+          onClick={() => { setError(null); setShowCreate(true); }}
+          className="h-10 px-3 rounded-xl text-[12px] font-semibold text-white flex items-center gap-1.5"
+          style={{ backgroundColor: "var(--color-primary-500)" }}
+        >
+          <Icon name="userPlus" size={14} /> Créer un compte
+        </button>
       </div>
 
       <div className="flex flex-wrap gap-1.5">
@@ -624,6 +641,7 @@ function UsersTab() {
                   <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>Utilisateur</th>
                   <th className="admin-col-dept text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>Département</th>
                   <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>Rôle</th>
+                  <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>Origine</th>
                   <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>Compte</th>
                   <th className="admin-col-presence text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>Présence</th>
                   <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>Actions</th>
@@ -658,6 +676,14 @@ function UsersTab() {
                           ? { backgroundColor: "rgba(124,58,237,0.12)", color: "#7c3aed" }
                           : { backgroundColor: "var(--color-surface-secondary)", color: "var(--color-text-muted)" }}>
                         {u.role === "system_admin" ? "Admin" : "Utilisateur"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold"
+                        style={u.authSource === "local"
+                          ? { backgroundColor: "rgba(8,145,178,0.12)", color: "#0891b2" }
+                          : { backgroundColor: "var(--color-surface-secondary)", color: "var(--color-text-muted)" }}>
+                        {u.authSource === "local" ? "Local" : "AD"}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -697,6 +723,17 @@ function UsersTab() {
                         >
                           {u.isActive ? "Désactiver" : "Activer"}
                         </button>
+                        {u.authSource === "local" && (
+                          <button
+                            type="button"
+                            onClick={() => { setError(null); setResetUser(u); }}
+                            disabled={actionLoading === u.id}
+                            className="text-[11px] px-2 py-1 rounded-lg border disabled:opacity-30"
+                            style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}
+                          >
+                            Mot de passe
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -714,8 +751,220 @@ function UsersTab() {
 
       <p className="text-[12px]" style={{ color: "var(--color-text-muted)" }}>
         {filtered.length} affiché{filtered.length > 1 ? "s" : ""}
-        {users.length > 0 && ` · ${users.length} en base · ${users.filter((u) => u.role === "system_admin").length} admin`}
+        {users.length > 0 && ` · ${users.length} en base · ${users.filter((u) => u.role === "system_admin").length} admin · ${users.filter((u) => u.authSource === "local").length} local`}
       </p>
+
+      {showCreate && (
+        <CreateUserModal
+          busy={creating}
+          error={error}
+          onClose={() => { if (!creating) setShowCreate(false); }}
+          onSubmit={async (payload) => {
+            setCreating(true);
+            setError(null);
+            try {
+              const created = await invoke<AdminUser>("cmd_admin_create_user", {
+                token,
+                payload: {
+                  username: payload.username,
+                  displayName: payload.displayName,
+                  email: payload.email || null,
+                  department: payload.department || null,
+                  password: payload.password,
+                  role: payload.role,
+                },
+              });
+              setUsers((prev) => [created, ...prev]);
+              setShowCreate(false);
+            } catch (e: unknown) {
+              setError(e instanceof Error ? e.message : String(e));
+            } finally {
+              setCreating(false);
+            }
+          }}
+        />
+      )}
+      {resetUser && (
+        <ResetPasswordModal
+          username={resetUser.username}
+          busy={resetting}
+          error={error}
+          onClose={() => { if (!resetting) setResetUser(null); }}
+          onSubmit={async (password) => {
+            setResetting(true);
+            setError(null);
+            try {
+              await invoke("cmd_admin_reset_local_password", { token, userId: resetUser.id, password });
+              setResetUser(null);
+            } catch (e: unknown) {
+              setError(e instanceof Error ? e.message : String(e));
+            } finally {
+              setResetting(false);
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+interface JoinRequestRow {
+  id: number;
+  userId: number;
+  username: string;
+  displayName: string;
+  email: string | null;
+  status: string;
+  createdAt: string;
+}
+
+const MOCK_JOIN_REQUESTS: JoinRequestRow[] = [
+  {
+    id: 1,
+    userId: 6,
+    username: "emma.rousseau",
+    displayName: "Emma Rousseau",
+    email: "e.rousseau@firsttrust.cm",
+    status: "pending",
+    createdAt: new Date().toISOString(),
+  },
+];
+
+function JoinRequestsTab() {
+  const { token } = useAuthStore();
+  const [rows, setRows] = useState<JoinRequestRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    invoke<JoinRequestRow[]>("cmd_admin_list_join_requests", { token })
+      .then(setRows)
+      .catch(() => setRows(MOCK_JOIN_REQUESTS))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const review = async (id: number, approve: boolean) => {
+    setBusyId(id);
+    setError(null);
+    try {
+      await invoke("cmd_admin_review_join_request", { token, requestId: id, approve });
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === id ? { ...r, status: approve ? "approved" : "rejected" } : r,
+        ),
+      );
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const pending = rows.filter((r) => r.status === "pending");
+  const done = rows.filter((r) => r.status !== "pending");
+
+  return (
+    <div>
+      <SectionIntro
+        title="Demandes d’adhésion — Employé"
+        hint="Comptes absents de l’Active Directory (ou comptes machine exclus). Seuls les administrateurs FiEcho peuvent les traiter."
+      />
+      {error && (
+        <p className="text-[13px] mb-3" style={{ color: "#dc2626" }}>{error}</p>
+      )}
+      {loading ? (
+        <div className="flex justify-center py-12"><Spinner /></div>
+      ) : (
+        <div className="space-y-4">
+          <AdminCard>
+            <div className="px-4 py-3 border-b" style={{ borderColor: "var(--color-border)" }}>
+              <h3 className="text-[13px] font-semibold" style={{ color: "var(--color-text-primary)" }}>
+                En attente ({pending.length})
+              </h3>
+            </div>
+            {pending.length === 0 ? (
+              <p className="text-[13px] text-center py-8" style={{ color: "var(--color-text-muted)" }}>
+                Aucune demande en attente
+              </p>
+            ) : (
+              <div className="divide-y" style={{ borderColor: "var(--color-border)" }}>
+                {pending.map((r) => (
+                  <div key={r.id} className="flex items-center gap-3 px-4 py-3">
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-[11px] font-semibold shrink-0"
+                      style={{ backgroundColor: `hsl(${hueOf(r.displayName)}, 42%, 42%)` }}
+                    >
+                      {initialsOf(r.displayName)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-semibold truncate" style={{ color: "var(--color-text-primary)" }}>
+                        {r.displayName}
+                      </p>
+                      <p className="text-[11px] truncate" style={{ color: "var(--color-text-muted)" }}>
+                        {r.username}{r.email ? ` · ${r.email}` : ""} · {timeAgo(r.createdAt)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        disabled={busyId === r.id}
+                        onClick={() => review(r.id, false)}
+                        className="h-8 px-3 rounded-lg text-[12px] font-semibold border disabled:opacity-50"
+                        style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}
+                      >
+                        Refuser
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busyId === r.id}
+                        onClick={() => review(r.id, true)}
+                        className="h-8 px-3 rounded-lg text-[12px] font-semibold text-white disabled:opacity-50"
+                        style={{ backgroundColor: "var(--color-primary-500)" }}
+                      >
+                        Accepter
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </AdminCard>
+          {done.length > 0 && (
+            <AdminCard>
+              <div className="px-4 py-3 border-b" style={{ borderColor: "var(--color-border)" }}>
+                <h3 className="text-[13px] font-semibold" style={{ color: "var(--color-text-primary)" }}>
+                  Traitées récemment
+                </h3>
+              </div>
+              <div className="divide-y" style={{ borderColor: "var(--color-border)" }}>
+                {done.map((r) => (
+                  <div key={r.id} className="flex items-center gap-3 px-4 py-2.5">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-medium truncate" style={{ color: "var(--color-text-primary)" }}>
+                        {r.displayName}
+                      </p>
+                      <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>{r.username}</p>
+                    </div>
+                    <span
+                      className="text-[11px] font-semibold px-2 py-0.5 rounded-md"
+                      style={{
+                        backgroundColor: r.status === "approved" ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
+                        color: r.status === "approved" ? "#16a34a" : "#dc2626",
+                      }}
+                    >
+                      {r.status === "approved" ? "Acceptée" : "Refusée"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </AdminCard>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -910,6 +1159,193 @@ function SyncTab() {
   );
 }
 
+function SettingsTab() {
+  const { token } = useAuthStore();
+  const { config, setConfig, dbConnected, setDbConnected } = useAppStore();
+  const [dbUrl, setDbUrl] = useState(config?.dbUrl ?? "");
+  const [ldapHost, setLdapHost] = useState(config?.ldapHost ?? "");
+  const [ldapPort, setLdapPort] = useState(String(config?.ldapPort ?? 389));
+  const [ldapBaseDn, setLdapBaseDn] = useState(config?.ldapBaseDn ?? "");
+  const [ldapUserAttribute, setLdapUserAttribute] = useState(config?.ldapUserAttribute ?? "sAMAccountName");
+  const [ldapUseTls, setLdapUseTls] = useState(config?.ldapUseTls ?? false);
+  const [ldapBindDn, setLdapBindDn] = useState(config?.ldapBindDn ?? "");
+  const [ldapBindPassword, setLdapBindPassword] = useState("");
+  const [runtimeLogDir, setRuntimeLogDir] = useState(config?.runtimeLogDir ?? "");
+  const [busy, setBusy] = useState<"idle" | "test" | "save">("idle");
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    authService.loadConfig().then((cfg) => {
+      const mapped = toStoreConfig(cfg);
+      setConfig(mapped);
+      setDbUrl(mapped.dbUrl);
+      setLdapHost(mapped.ldapHost);
+      setLdapPort(String(mapped.ldapPort));
+      setLdapBaseDn(mapped.ldapBaseDn);
+      setLdapUserAttribute(mapped.ldapUserAttribute);
+      setLdapUseTls(mapped.ldapUseTls);
+      setLdapBindDn(mapped.ldapBindDn);
+      setRuntimeLogDir(mapped.runtimeLogDir);
+    }).catch(() => {});
+  }, [setConfig]);
+
+  const field = "w-full h-10 px-3 rounded-xl text-[13px] border outline-none";
+  const fieldStyle = {
+    backgroundColor: "var(--color-input-bg)",
+    borderColor: "var(--color-border)",
+    color: "var(--color-text-primary)",
+  };
+
+  const testDb = async () => {
+    setBusy("test");
+    setMessage(null);
+    try {
+      await authService.testDbConnection(dbUrl);
+      setMessage({ ok: true, text: "Connexion à la base réussie." });
+    } catch (e: unknown) {
+      setMessage({ ok: false, text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBusy("idle");
+    }
+  };
+
+  const save = async () => {
+    setBusy("save");
+    setMessage(null);
+    try {
+      const cfg = await authService.adminSaveConfig(token ?? "", {
+        dbUrl,
+        ldapHost,
+        ldapPort: parseInt(ldapPort, 10) || 389,
+        ldapBaseDn,
+        ldapUserAttribute,
+        ldapUseTls,
+        ldapBindDn,
+        ldapBindPassword,
+        runtimeLogDir,
+      });
+      setConfig(toStoreConfig(cfg));
+      setDbConnected(true);
+      setLdapBindPassword("");
+      setMessage({ ok: true, text: "Réglages enregistrés. Les journaux quotidiens sont écrits sur le serveur de base." });
+    } catch (e: unknown) {
+      setMessage({ ok: false, text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBusy("idle");
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <SectionIntro
+        title="Réglages de la plateforme"
+        hint="Ces valeurs sont intégrées à l’application. Modifiez-les ici pour les appliquer sans assistant d’installation."
+      />
+
+      <AdminCard>
+        <div className="px-4 py-3 border-b" style={{ borderColor: "var(--color-border)" }}>
+          <h3 className="text-[13px] font-semibold" style={{ color: "var(--color-text-primary)" }}>Serveur de données</h3>
+          <p className="text-[12px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+            {dbEngineLabel(dbUrl)} · {dbConnected ? "connecté" : "hors ligne"}
+          </p>
+        </div>
+        <div className="p-4 space-y-3">
+          <label className="block">
+            <span className="block text-[12px] font-semibold mb-1.5" style={{ color: "var(--color-text-secondary)" }}>URL de connexion</span>
+            <input value={dbUrl} onChange={(e) => setDbUrl(e.target.value)} className={field} style={fieldStyle} spellCheck={false} />
+          </label>
+          <button type="button" onClick={testDb} disabled={busy !== "idle"}
+            className="h-10 px-3 rounded-xl text-[12px] font-semibold border"
+            style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}>
+            {busy === "test" ? "Test…" : "Tester la connexion"}
+          </button>
+        </div>
+      </AdminCard>
+
+      <AdminCard>
+        <div className="px-4 py-3 border-b" style={{ borderColor: "var(--color-border)" }}>
+          <h3 className="text-[13px] font-semibold" style={{ color: "var(--color-text-primary)" }}>Active Directory</h3>
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            <label className="col-span-2 block">
+              <span className="block text-[12px] font-semibold mb-1.5" style={{ color: "var(--color-text-secondary)" }}>Serveur LDAP</span>
+              <input value={ldapHost} onChange={(e) => setLdapHost(e.target.value)} className={field} style={fieldStyle} spellCheck={false} />
+            </label>
+            <label className="block">
+              <span className="block text-[12px] font-semibold mb-1.5" style={{ color: "var(--color-text-secondary)" }}>Port</span>
+              <input type="number" value={ldapPort} onChange={(e) => setLdapPort(e.target.value)} className={field} style={fieldStyle} />
+            </label>
+          </div>
+          <label className="block">
+            <span className="block text-[12px] font-semibold mb-1.5" style={{ color: "var(--color-text-secondary)" }}>Base DN</span>
+            <input value={ldapBaseDn} onChange={(e) => setLdapBaseDn(e.target.value)} className={field} style={fieldStyle} spellCheck={false} />
+          </label>
+          <label className="block">
+            <span className="block text-[12px] font-semibold mb-1.5" style={{ color: "var(--color-text-secondary)" }}>Attribut d’identifiant</span>
+            <input value={ldapUserAttribute} onChange={(e) => setLdapUserAttribute(e.target.value)} className={field} style={fieldStyle} spellCheck={false} />
+          </label>
+          <label className="block">
+            <span className="block text-[12px] font-semibold mb-1.5" style={{ color: "var(--color-text-secondary)" }}>Compte de service (DN)</span>
+            <input value={ldapBindDn} onChange={(e) => setLdapBindDn(e.target.value)} className={field} style={fieldStyle} spellCheck={false} />
+          </label>
+          <label className="block">
+            <span className="block text-[12px] font-semibold mb-1.5" style={{ color: "var(--color-text-secondary)" }}>Mot de passe du compte de service</span>
+            <input type="password" value={ldapBindPassword} onChange={(e) => setLdapBindPassword(e.target.value)} className={field} style={fieldStyle} placeholder="Laisser vide pour ne pas changer" autoComplete="new-password" />
+          </label>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !ldapUseTls;
+              setLdapUseTls(next);
+              if (next && ldapPort === "389") setLdapPort("636");
+              if (!next && ldapPort === "636") setLdapPort("389");
+            }}
+            className="flex items-center gap-2 text-[13px]"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
+            <span className="w-11 h-6 rounded-full relative shrink-0" style={{ backgroundColor: ldapUseTls ? "var(--color-primary-500)" : "var(--color-border-strong)" }}>
+              <span className="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-sm" style={{ transform: ldapUseTls ? "translateX(22px)" : "translateX(2px)" }} />
+            </span>
+            TLS / LDAPS
+          </button>
+        </div>
+      </AdminCard>
+
+      <AdminCard>
+        <div className="px-4 py-3 border-b" style={{ borderColor: "var(--color-border)" }}>
+          <h3 className="text-[13px] font-semibold" style={{ color: "var(--color-text-primary)" }}>Journal runtime quotidien</h3>
+          <p className="text-[12px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+            Chemin <strong>local</strong> vu par PostgreSQL sur 192.168.30.42 (ex. C:/Program Files/FiEcho/log). Pas un UNC du type \\serveur\c$\… : COPY TO écrit sur le disque du service, pas via le partage admin. Le dossier doit déjà exister, avec droit d’écriture pour le compte du service PostgreSQL.
+          </p>
+        </div>
+        <div className="p-4">
+          <label className="block">
+            <span className="block text-[12px] font-semibold mb-1.5" style={{ color: "var(--color-text-secondary)" }}>Répertoire sur le serveur BD</span>
+            <input value={runtimeLogDir} onChange={(e) => setRuntimeLogDir(e.target.value)} className={field} style={fieldStyle} spellCheck={false} placeholder="C:/Program Files/FiEcho/log" />
+          </label>
+        </div>
+      </AdminCard>
+
+      {message && (
+        <p className="text-[13px] px-3 py-2 rounded-xl" style={{ backgroundColor: message.ok ? "rgba(22,163,74,0.1)" : "rgba(239,68,68,0.1)", color: message.ok ? "#16a34a" : "#dc2626" }}>
+          {message.text}
+        </p>
+      )}
+
+      <button
+        type="button"
+        onClick={save}
+        disabled={busy !== "idle"}
+        className="h-11 px-5 rounded-xl text-[13px] font-semibold text-white disabled:opacity-60"
+        style={{ backgroundColor: "var(--color-primary-500)" }}
+      >
+        {busy === "save" ? "Enregistrement…" : "Enregistrer les réglages"}
+      </button>
+    </div>
+  );
+}
+
 function LogsTab() {
   const { token } = useAuthStore();
   const entries = useRuntimeLogStore((s) => s.entries);
@@ -921,6 +1357,7 @@ function LogsTab() {
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
+  const [archives, setArchives] = useState<{ logDate: string; fileName: string; byteSize: number; serverPath: string | null; fileWritten: boolean; writeError: string | null }[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
 
@@ -937,6 +1374,12 @@ function LogsTab() {
   }, [token, replaceAll]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    invoke<typeof archives>("cmd_admin_list_log_archives", { token })
+      .then(setArchives)
+      .catch(() => setArchives([]));
+  }, [token]);
 
   useEffect(() => {
     if (!live || !stickToBottom.current) return;
@@ -1009,7 +1452,7 @@ function LogsTab() {
   return (
     <div className="flex flex-col gap-4 h-full min-h-0">
       <div className="flex items-start justify-between gap-3 flex-wrap">
-        <SectionIntro title="Journal runtime" hint="Même flux que le terminal — tracing backend et erreurs d’interface." />
+        <SectionIntro title="Journal runtime" hint="Flux en direct, plus archives quotidiennes stockées sur le serveur de base." />
         <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
@@ -1042,6 +1485,24 @@ function LogsTab() {
       </div>
 
       {exportMsg && <p className="text-[12px] -mt-2" style={{ color: "var(--color-primary-600)" }}>{exportMsg}</p>}
+
+      {archives.length > 0 && (
+        <AdminCard>
+          <div className="px-4 py-3 border-b" style={{ borderColor: "var(--color-border)" }}>
+            <h3 className="text-[13px] font-semibold" style={{ color: "var(--color-text-primary)" }}>Fichiers journaliers (serveur BD)</h3>
+          </div>
+          <div className="p-3 space-y-1.5 max-h-40 overflow-y-auto">
+            {archives.map((a) => (
+              <div key={a.logDate} className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-[12px]"
+                style={{ backgroundColor: "var(--color-surface-secondary)" }}>
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: a.fileWritten ? "#22c55e" : "#f59e0b" }} />
+                <span className="font-medium truncate" style={{ color: "var(--color-text-primary)" }}>{a.fileName}</span>
+                <span className="ml-auto tabular-nums shrink-0" style={{ color: "var(--color-text-muted)" }}>{Math.max(1, Math.round(a.byteSize / 1024))} Ko</span>
+              </div>
+            ))}
+          </div>
+        </AdminCard>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <div className="flex items-center gap-2 rounded-xl px-3 h-10 border flex-1 min-w-40"
@@ -1166,7 +1627,9 @@ export function AdminPage() {
           <div className={`admin-pad ${section === "logs" ? "flex-1 min-h-0 flex flex-col" : ""}`}>
             {section === "stats" && <StatsTab />}
             {section === "users" && <UsersTab />}
+            {section === "joins" && <JoinRequestsTab />}
             {section === "sync" && <SyncTab />}
+            {section === "settings" && <SettingsTab />}
             {section === "logs" && <LogsTab />}
           </div>
         </div>

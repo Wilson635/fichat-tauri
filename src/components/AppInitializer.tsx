@@ -20,7 +20,7 @@
 import { useEffect } from "react";
 import { useAuthStore } from "@/store/authStore";
 import { useAppStore } from "@/store/appStore";
-import { authService } from "@/services/authService";
+import { authService, toStoreConfig } from "@/services/authService";
 import { migrateFromLocalStorage } from "@/services/secureStorage";
 import { Icon } from "@/components/Icon";
 import { AppLogo } from "@/components/AppLogo";
@@ -58,25 +58,17 @@ export function AppInitializer({ children }: AppInitializerProps) {
 
         if (cancelled) return;
 
-        if (status.is_configured) {
+        if (status.is_configured || status.db_connected) {
           setDbConnected(status.db_connected);
-          // Load full config so appStore.isConfigured becomes true
-          try {
-            const cfg = await authService.loadConfig();
-            if (!cancelled) {
-              setConfig({
-                ldapHost: cfg.ldap_host,
-                ldapPort: cfg.ldap_port,
-                ldapBaseDn: cfg.ldap_base_dn,
-                ldapUserAttribute: cfg.ldap_user_attribute,
-                ldapUseTls: cfg.ldap_use_tls,
-                dbUrl: cfg.db_url,
-                appName: cfg.app_name,
-              });
-            }
-          } catch {
-            // Config might not be readable — still trust backend status
+        }
+        try {
+          const cfg = await authService.loadConfig();
+          if (!cancelled) {
+            setConfig(toStoreConfig(cfg));
+            setDbConnected(status.db_connected);
           }
+        } catch {
+          // Config might not be readable — still trust backend status
         }
 
         // 2. Validate stored JWT token (now safely read after hydration)
@@ -118,7 +110,9 @@ export function AppInitializer({ children }: AppInitializerProps) {
             ldapBaseDn: "dc=example,dc=com",
             ldapUserAttribute: "sAMAccountName",
             ldapUseTls: false,
+            ldapBindDn: "",
             dbUrl: "mock",
+            runtimeLogDir: "",
             appName: APP_NAME,
           });
           setDbConnected(true);

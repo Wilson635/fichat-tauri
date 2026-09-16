@@ -72,12 +72,15 @@ export interface ConversationSummary {
   id: number;
   convType: "direct" | "group";
   name: string;
+  description?: string | null;
   avatarPath: string | null;
   lastMessage: string | null;
   lastMessageAt: string | null;
   unreadCount: number;
   participants: ParticipantInfo[];
   createdByName?: string | null;
+  adSyncKey?: string | null;
+  membership?: "member" | "none" | "pending";
 }
 
 export interface MessageSearchResult {
@@ -118,6 +121,7 @@ function mapConversation(raw: any): ConversationSummary {
     id: Number(raw.id ?? raw.id),
     convType: raw.conv_type ?? raw.convType,
     name: raw.name,
+    description: raw.description ?? null,
     avatarPath: raw.avatar_path ?? raw.avatarPath ?? null,
     lastMessage: raw.last_message ?? raw.lastMessage ?? null,
     lastMessageAt: raw.last_message_at ?? raw.lastMessageAt ?? null,
@@ -130,6 +134,8 @@ function mapConversation(raw: any): ConversationSummary {
       role: (p.role ?? "member") as "admin" | "member",
     })),
     createdByName: raw.created_by_name ?? raw.createdByName ?? null,
+    adSyncKey: raw.ad_sync_key ?? raw.adSyncKey ?? null,
+    membership: (raw.membership === "none" || raw.membership === "pending" ? raw.membership : "member") as ConversationSummary["membership"],
   };
 }
 
@@ -399,6 +405,7 @@ export const chatService = {
         id: convId,
         convType: "group",
         name,
+        description: description.trim() || null,
         avatarPath: null,
         lastMessage: null,
         lastMessageAt: new Date().toISOString(),
@@ -413,7 +420,39 @@ export const chatService = {
     return Number(await invoke<number>("cmd_create_group_conversation", { token, name, description, memberIds }));
   },
 
+  async updateGroup(
+    conversationId: number,
+    name: string,
+    description: string,
+    avatarPath: string | null,
+  ): Promise<{ name: string; description: string | null; avatarPath: string | null }> {
+    if (!isTauri()) {
+      dbUpdateConversation(currentUid(), conversationId, { name, description, avatarPath });
+      return { name, description: description.trim() || null, avatarPath };
+    }
+    const token = useAuthStore.getState().token!;
+    const raw = await invoke<{ name: string; description: string | null; avatar_path?: string | null; avatarPath?: string | null }>(
+      "cmd_update_group",
+      { token, conversationId, name, description, avatarPath },
+    );
+    return {
+      name: raw.name,
+      description: raw.description ?? null,
+      avatarPath: raw.avatar_path ?? raw.avatarPath ?? null,
+    };
+  },
+
   // ── Group member management ──────────────────────────────────────────────────
+
+  async requestOrgGroupJoin(conversationId: number): Promise<"member" | "pending"> {
+    if (!isTauri()) {
+      dbUpdateConversation(currentUid(), conversationId, { membership: "pending" });
+      return "pending";
+    }
+    const token = useAuthStore.getState().token!;
+    const status = await invoke<string>("cmd_request_org_group_join", { token, conversationId });
+    return status === "member" ? "member" : "pending";
+  },
 
   async addGroupMember(conversationId: number, userId: number): Promise<void> {
     if (!isTauri()) {

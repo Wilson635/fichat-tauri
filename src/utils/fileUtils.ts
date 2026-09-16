@@ -413,3 +413,47 @@ export function fileToDataUrl(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+/** Square JPEG data URL for a profile photo (center crop, max ~256 px). */
+export async function prepareProfileAvatar(file: File, size = 256): Promise<string> {
+  if (file.type && !/^image\/(jpeg|jpg|png|webp|gif)$/i.test(file.type)) {
+    throw new Error("Choisissez une image (JPEG, PNG ou WebP).");
+  }
+  if (file.size > 12 * 1024 * 1024) {
+    throw new Error("Image trop lourde (12 Mo maximum).");
+  }
+
+  const bitmap = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Impossible de lire cette image."));
+    };
+    img.src = url;
+  });
+
+  const side = Math.min(bitmap.width, bitmap.height);
+  if (side < 32) {
+    throw new Error("Image trop petite.");
+  }
+
+  const sx = (bitmap.width - side) / 2;
+  const sy = (bitmap.height - side) / 2;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Impossible de traiter cette image.");
+  ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, size, size);
+
+  for (const quality of [0.84, 0.72, 0.58]) {
+    const url = canvas.toDataURL("image/jpeg", quality);
+    if (url.length <= 320_000) return url;
+  }
+  throw new Error("Photo trop lourde après compression. Essayez une autre image.");
+}

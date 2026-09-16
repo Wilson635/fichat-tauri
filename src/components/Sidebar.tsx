@@ -179,7 +179,7 @@ export function Sidebar({ onOpenGlobalSearch }: SidebarProps) {
           </span>
         </div>
 
-        <div className="px-4 pb-3 shrink-0">
+        <div className="px-4 pb-2 shrink-0">
           <div
             className="flex items-center gap-2 rounded-xl px-3 h-10"
             style={{ backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)" }}

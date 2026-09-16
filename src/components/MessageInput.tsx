@@ -417,8 +417,17 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
 
     return (
         <div className="composer-wrap">
+            {pendingFile && (
+                <SendFileOverlay
+                    pending={pendingFile}
+                    onCancel={() => {
+                        clearPending();
+                        inputRef.current?.focus();
+                    }}
+                />
+            )}
             <div
-                className={`composer-card ${focused || showEmoji || showAttachMenu || recording ? "is-focused" : ""} ${disabled ? "is-disabled" : ""}`}
+                className={`composer-card ${focused || showEmoji || showAttachMenu || recording || pendingFile ? "is-focused" : ""} ${disabled ? "is-disabled" : ""}`}
             >
                 {replyTo && (
                     <div className="composer-reply">
@@ -434,19 +443,6 @@ export function MessageInput({ onSend, onSendFile, onTyping, replyTo, onCancelRe
                             <Icon name="x" size={14} />
                         </button>
                     </div>
-                )}
-
-                {pendingFile && (
-                    <SendFileOverlay
-                        pending={pendingFile}
-                        caption={text}
-                        onCaption={setText}
-                        onSend={send}
-                        onCancel={() => {
-                            clearPending();
-                            inputRef.current?.focus();
-                        }}
-                    />
                 )}
 
                 {recordError && (

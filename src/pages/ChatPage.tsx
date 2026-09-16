@@ -7,7 +7,7 @@ import { wsService } from "@/services/wsService";
 import { MessageBubble, DateSeparator, formatDateSeparator } from "@/components/MessageBubble";
 import { MessageInput } from "@/components/MessageInput";
 import { ConversationInfoPanel } from "@/components/ConversationInfoPanel";
-import { FilePreviewModal } from "@/components/FilePreviewModal";
+import { FilePreviewPanel } from "@/components/FilePreviewModal";
 import { Icon } from "@/components/Icon";
 import type { MessageDto, AttachmentDto } from "@/services/chatService";
 import { isSameDay } from "date-fns";
@@ -46,6 +46,7 @@ export function ChatPage() {
     sendFileMessage,
     markAsRead,
     setCurrentConversation,
+    requestOrgGroupJoin,
   } = useChatStore();
 
   const { openEdit, openDelete } = useMessageActionStore();
@@ -56,6 +57,7 @@ export function ChatPage() {
   const conversation = conversations.find((c) => c.id === convId);
   const messages = messagesMap[convId] ?? [];
   const typingUsers = (typingMap[convId] ?? []).filter((u) => u.userId !== user?.id);
+  const lockedOut = conversation?.membership === "none" || conversation?.membership === "pending";
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -66,6 +68,8 @@ export function ChatPage() {
   const [showInfo, setShowInfo] = useState(false);
   const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
   const [previewAttachment, setPreviewAttachment] = useState<AttachmentDto | null>(null);
+  const [joinBusy, setJoinBusy] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
   const isInitialLoad = useRef(true);
 
   // ── Unread-while-scrolled-up bubble (WhatsApp style) ───────────────────────
@@ -74,7 +78,7 @@ export function ChatPage() {
 
   // Load messages on mount / conversation change
   useEffect(() => {
-    if (!convId) return;
+    if (!convId || lockedOut) return;
     isInitialLoad.current = true;
     setUnreadWhileScrolledUp(0);
     prevMsgCountRef.current = 0;
@@ -85,6 +89,11 @@ export function ChatPage() {
     return () => {
       setCurrentConversation(null);
     };
+  }, [convId, lockedOut]);
+
+  useEffect(() => {
+    setPreviewAttachment(null);
+    setShowInfo(false);
   }, [convId]);
 
   useEffect(() => {
@@ -260,7 +269,15 @@ export function ChatPage() {
     offline: "Hors ligne",
   };
 
-  const handleHeaderClick = () => setShowInfo((v) => !v);
+  const handleHeaderClick = () => {
+    setPreviewAttachment(null);
+    setShowInfo((v) => !v);
+  };
+
+  const openPreview = (att: AttachmentDto) => {
+    setShowInfo(false);
+    setPreviewAttachment(att);
+  };
 
   return (
       <div className="flex h-full min-h-0 overflow-hidden" style={{ backgroundColor: "var(--color-surface)" }}>
@@ -331,6 +348,7 @@ export function ChatPage() {
             </button>
 
             <div className="flex items-center gap-0.5 shrink-0">
+              {!lockedOut && (
               <button
                   onClick={() => setSearchOpen((v) => !v)}
                   className="icon-btn"
@@ -339,6 +357,7 @@ export function ChatPage() {
               >
                 <Icon name="search" size={18} />
               </button>
+              )}
               <button
                   onClick={handleHeaderClick}
                   className="icon-btn"
@@ -351,7 +370,7 @@ export function ChatPage() {
           </div>
 
           {/* ── Search bar ──────────────────────────────────────────── */}
-          {searchOpen && (
+          {searchOpen && !lockedOut && (
               <div
                   className="px-4 py-2 shrink-0 border-b"
                   style={{ backgroundColor: "var(--color-surface-secondary)", borderColor: "var(--color-border)" }}
@@ -384,6 +403,47 @@ export function ChatPage() {
               </div>
           )}
 
+          {lockedOut ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 px-8 text-center chat-bg">
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ backgroundColor: "var(--color-surface-secondary)" }}>
+                <Icon name="users" size={28} style={{ color: "var(--color-primary-600)" }} />
+              </div>
+              <h3 className="text-[16px] font-semibold" style={{ color: "var(--color-text-primary)" }}>Groupe Employé</h3>
+              <p className="text-sm max-w-sm" style={{ color: "var(--color-text-muted)" }}>
+                Ce groupe rassemble les comptes Active Directory, hors comptes machine (symbole $).
+                Vous n’en faites pas partie. La demande est envoyée aux administrateurs de FiEcho, pas aux administrateurs du groupe.
+              </p>
+              {joinError && (
+                <p className="text-[13px]" style={{ color: "#dc2626" }}>{joinError}</p>
+              )}
+              {conversation.membership === "pending" ? (
+                <p className="text-[13px] font-semibold px-3 py-2 rounded-xl" style={{ backgroundColor: "rgba(245,158,11,0.12)", color: "#d97706" }}>
+                  Demande en attente de validation
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  disabled={joinBusy}
+                  onClick={async () => {
+                    setJoinBusy(true);
+                    setJoinError(null);
+                    try {
+                      await requestOrgGroupJoin(conversation.id);
+                    } catch (e: unknown) {
+                      setJoinError(e instanceof Error ? e.message : String(e));
+                    } finally {
+                      setJoinBusy(false);
+                    }
+                  }}
+                  className="h-10 px-5 rounded-xl text-[13px] font-semibold text-white disabled:opacity-60"
+                  style={{ backgroundColor: "var(--color-primary-500)" }}
+                >
+                  {joinBusy ? "Envoi…" : "Demander à rejoindre"}
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
           {/* ── Messages area ───────────────────────────────────────── */}
           <div
               ref={scrollRef}
@@ -435,7 +495,7 @@ export function ChatPage() {
                             onReply={setReplyTo}
                             onEdit={handleEditMessage}
                             onDelete={handleDeleteMessage}
-                            onOpenPreview={setPreviewAttachment}
+                            onOpenPreview={openPreview}
                         />
                       </div>
                   );
@@ -503,18 +563,21 @@ export function ChatPage() {
               replyTo={replyTo}
               onCancelReply={() => setReplyTo(null)}
           />
+            </>
+          )}
         </div>{/* end main chat column */}
 
         {/* ── Side panels ─────────────────────────────────────────── */}
-        {showInfo && (
+        {showInfo && !previewAttachment && (
             <ConversationInfoPanel
                 conversation={conversation}
                 onClose={() => setShowInfo(false)}
+                onOpenFile={openPreview}
             />
         )}
 
         {previewAttachment && (
-            <FilePreviewModal
+            <FilePreviewPanel
                 attachment={previewAttachment}
                 onClose={() => setPreviewAttachment(null)}
             />

@@ -1,6 +1,5 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { MainLayout } from "@/layouts/MainLayout";
-import { SetupPage } from "@/pages/SetupPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { HomePage } from "@/pages/HomePage";
 import { ChatPage } from "@/pages/ChatPage";
@@ -13,7 +12,7 @@ import { AdminGuard } from "@/components/AdminGuard";
 export const router = createBrowserRouter([
   {
     path: "/setup",
-    element: <SetupPage />,
+    element: <Navigate to="/login" replace />,
   },
   {
     path: "/login",

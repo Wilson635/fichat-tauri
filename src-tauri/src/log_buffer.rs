@@ -70,6 +70,7 @@ fn push(entry: RuntimeLog) {
         }
         b.push_back(entry.clone());
     }
+    crate::log_archive::enqueue(&entry);
     if let Some(app) = APP.get() {
         let _ = app.emit("runtime-log", &entry);
     }

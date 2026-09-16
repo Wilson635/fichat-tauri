@@ -172,15 +172,50 @@ function buildDefaultMessages(uid: number): Record<number, MessageDto[]> {
 
 function convKey(uid: number): string { return `${CONV_KEY_PREFIX}${uid}`; }
 
+function ensureEmployeeGroup(uid: number, convs: ConversationSummary[]): ConversationSummary[] {
+  const idx = convs.findIndex((c) => c.adSyncKey === "employe" || c.name === "Employé");
+  if (idx >= 0) {
+    const g = {
+      ...convs[idx],
+      adSyncKey: convs[idx].adSyncKey ?? "employe",
+      membership: convs[idx].membership ?? "member",
+    };
+    if (idx === 0 && g.adSyncKey === convs[0].adSyncKey && g.membership === convs[0].membership) {
+      return convs;
+    }
+    return [g, ...convs.filter((_, i) => i !== idx)];
+  }
+  const org: ConversationSummary = {
+    id: 90,
+    convType: "group",
+    name: "Employé",
+    avatarPath: null,
+    lastMessage: "Groupe des employés. Demandez l’accès aux administrateurs FiEcho.",
+    lastMessageAt: null,
+    unreadCount: 0,
+    participants: [
+      makeParticipant(uid, uid),
+      makeParticipant(2, uid),
+      makeParticipant(3, uid),
+      makeParticipant(5, uid),
+    ],
+    adSyncKey: "employe",
+    membership: "member",
+  };
+  return [org, ...convs];
+}
+
 export function dbLoadConversations(uid: number): ConversationSummary[] {
   loadNextId();
+  let convs: ConversationSummary[] | null = null;
   try {
     const s = localStorage.getItem(convKey(uid));
-    if (s) return JSON.parse(s) as ConversationSummary[];
+    if (s) convs = JSON.parse(s) as ConversationSummary[];
   } catch {}
-  const defaults = buildDefaultConversations(uid);
-  dbSaveConversations(uid, defaults);
-  return defaults;
+  if (!convs) convs = buildDefaultConversations(uid);
+  const next = ensureEmployeeGroup(uid, convs);
+  if (next !== convs) dbSaveConversations(uid, next);
+  return next;
 }
 
 function dbSaveConversations(uid: number, convs: ConversationSummary[]): void {

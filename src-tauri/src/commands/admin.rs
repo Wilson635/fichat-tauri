@@ -6,9 +6,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tauri::State;
 
-const LDAP_SERVICE_DN: &str = "CN=stagdsi,CN=Users,DC=firsttrust,DC=cm";
-const LDAP_SERVICE_PASSWORD: &str = "Internal@2025";
-
 // ─── JWT helper ───────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -17,7 +14,7 @@ struct Claims {
     role: String,
 }
 
-fn require_admin(token: &str, secret: &str) -> Result<i32, String> {
+pub(crate) fn require_admin(token: &str, secret: &str) -> Result<i32, String> {
     let data = decode::<Claims>(
         token,
         &DecodingKey::from_secret(secret.as_bytes()),
@@ -46,6 +43,7 @@ pub struct AdminUser {
     pub is_active: bool,
     pub presence_status: String,
     pub last_seen: Option<DateTime<Utc>>,
+    pub auth_source: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -118,7 +116,8 @@ pub async fn cmd_admin_list_users(
             u.role,
             u.is_active,
             COALESCE(up.status, 'offline') AS presence_status,
-            u.last_seen
+            u.last_seen,
+            COALESCE(u.auth_source, 'ad') AS auth_source
         FROM users u
         LEFT JOIN user_presence up ON up.user_id = u.id
         ORDER BY u.display_name ASC
@@ -140,6 +139,7 @@ pub async fn cmd_admin_list_users(
             is_active:        row.try_get("is_active").unwrap_or(true),
             presence_status:  row.try_get("presence_status").unwrap_or_else(|_| "offline".into()),
             last_seen:        row.try_get("last_seen").ok().flatten(),
+            auth_source:      row.try_get("auth_source").unwrap_or_else(|_| "ad".into()),
         })
         .collect();
 
@@ -439,7 +439,7 @@ pub async fn cmd_admin_sync_ad(
             .map_err(|e| format!("Impossible de contacter le serveur LDAP : {e}"))?;
         ldap3::drive!(conn);
 
-        ldap.simple_bind(LDAP_SERVICE_DN, LDAP_SERVICE_PASSWORD)
+        ldap.simple_bind(&config.ldap_bind_dn, &config.ldap_bind_password)
             .await
             .map_err(|e| format!("Erreur bind compte de service : {e}"))?
             .success()
@@ -487,6 +487,9 @@ pub async fn cmd_admin_sync_ad(
                 Some(u) => u,
                 None => continue,
             };
+            if crate::ad_employee::is_machine_account(&username) {
+                continue;
+            }
             let display_name = get_attr("displayName").unwrap_or_else(|| username.clone());
             let email        = get_attr("mail");
             let department   = get_attr("department");
@@ -510,17 +513,14 @@ pub async fn cmd_admin_sync_ad(
             } else {
                 let rows_affected = sqlx::query(
                     r#"
-                    INSERT INTO users (username, display_name, email, department, title, phone, ldap_dn, is_active, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, true, NOW())
+                    INSERT INTO users (username, display_name, email, department, title, phone, ldap_dn, auth_source, is_active, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, 'ad', true, NOW())
                     ON CONFLICT (username) DO UPDATE SET
-                        display_name = EXCLUDED.display_name,
-                        email        = EXCLUDED.email,
-                        department   = EXCLUDED.department,
-                        title        = EXCLUDED.title,
-                        phone        = EXCLUDED.phone,
                         ldap_dn      = EXCLUDED.ldap_dn,
+                        auth_source  = 'ad',
                         is_active    = true,
                         updated_at   = NOW()
+                    WHERE users.auth_source IS DISTINCT FROM 'local'
                     "#,
                 )
                 .bind(&username)
@@ -534,8 +534,10 @@ pub async fn cmd_admin_sync_ad(
                 .await
                 .map_err(|e| format!("Erreur upsert {username} : {e}"))?;
 
-                if rows_affected.rows_affected() == 1 {
-                    // INSERT (nouvel utilisateur)
+                let n = rows_affected.rows_affected();
+                if n == 0 {
+                    // Compte local conservé
+                } else if n == 1 {
                     added += 1;
                 } else {
                     updated += 1;
@@ -555,7 +557,10 @@ pub async fn cmd_admin_sync_ad(
 
             let query_str = format!(
                 "UPDATE users SET is_active = false, updated_at = NOW()
-                 WHERE username NOT IN ({placeholders}) AND is_active = true
+                 WHERE username NOT IN ({placeholders})
+                   AND is_active = true
+                   AND COALESCE(auth_source, 'ad') <> 'local'
+                   AND ldap_dn IS NOT NULL
                  RETURNING id"
             );
 
@@ -568,6 +573,12 @@ pub async fn cmd_admin_sync_ad(
         } else {
             0
         };
+
+        if !dry_run {
+            if let Err(e) = crate::ad_employee::sync_all_ad_users(&pool).await {
+                tracing::warn!("{e}");
+            }
+        }
 
         Ok(SyncResult { added, updated, disabled })
     }
@@ -650,4 +661,353 @@ pub async fn cmd_admin_export_runtime_logs(
         .map_err(|e| format!("Impossible d'écrire le fichier : {e}"))?;
     tracing::info!("Logs exportés vers {path} ({} octets)", body.len());
     Ok(path)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateLocalUserPayload {
+    pub username: String,
+    pub display_name: String,
+    pub email: Option<String>,
+    pub department: Option<String>,
+    pub password: String,
+    pub role: Option<String>,
+}
+
+#[tauri::command]
+pub async fn cmd_admin_create_user(
+    token: String,
+    payload: CreateLocalUserPayload,
+    state: State<'_, SharedState>,
+) -> Result<AdminUser, String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    let actor_id = require_admin(&token, &jwt_secret)?;
+
+    let username = payload.username.trim().to_lowercase();
+    let display_name = payload.display_name.trim().to_string();
+    if username.len() < 3 || username.len() > 50 {
+        return Err("L’identifiant doit contenir entre 3 et 50 caractères.".into());
+    }
+    if !username
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+    {
+        return Err("L’identifiant ne peut contenir que lettres, chiffres, point, tiret et underscore.".into());
+    }
+    if display_name.is_empty() || display_name.len() > 255 {
+        return Err("Le nom affiché est obligatoire.".into());
+    }
+    if payload.password.len() < 8 {
+        return Err("Le mot de passe doit contenir au moins 8 caractères.".into());
+    }
+    let role = payload.role.unwrap_or_else(|| "user".into());
+    if role != "user" && role != "system_admin" {
+        return Err("Rôle invalide".into());
+    }
+
+    let hash = bcrypt::hash(&payload.password, bcrypt::DEFAULT_COST)
+        .map_err(|e| format!("Impossible de sécuriser le mot de passe : {e}"))?;
+
+    let email = payload
+        .email
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    let department = payload
+        .department
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    let row = sqlx::query(
+        r#"
+        INSERT INTO users (username, display_name, email, department, password_hash, role, auth_source, is_active, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, 'local', true, NOW())
+        RETURNING id, username, display_name, email, department, role, is_active, last_seen, auth_source
+        "#,
+    )
+    .bind(&username)
+    .bind(&display_name)
+    .bind(&email)
+    .bind(&department)
+    .bind(&hash)
+    .bind(&role)
+    .fetch_one(&pool)
+    .await
+    .map_err(|e| {
+        let msg = e.to_string();
+        if msg.contains("duplicate") || msg.contains("unique") {
+            "Cet identifiant existe déjà.".to_string()
+        } else {
+            format!("Erreur base de données : {e}")
+        }
+    })?;
+
+    let user_id: i32 = row.try_get("id").unwrap_or(0);
+
+    sqlx::query(
+        "INSERT INTO user_presence (user_id, status, last_heartbeat)
+         VALUES ($1, 'offline', NOW())
+         ON CONFLICT (user_id) DO NOTHING",
+    )
+    .bind(user_id)
+    .execute(&pool)
+    .await
+    .ok();
+
+    sqlx::query(
+        "INSERT INTO audit_logs (actor_id, action, target_type, target_id, details)
+         VALUES ($1, 'create_local_user', 'user', $2, $3)",
+    )
+    .bind(actor_id)
+    .bind(user_id)
+    .bind(serde_json::json!({ "username": username }).to_string())
+    .execute(&pool)
+    .await
+    .ok();
+
+    Ok(AdminUser {
+        id: user_id,
+        username: row.try_get("username").unwrap_or(username),
+        display_name: row.try_get("display_name").unwrap_or(display_name),
+        email: row.try_get("email").ok().flatten(),
+        department: row.try_get("department").ok().flatten(),
+        role: row.try_get("role").unwrap_or(role),
+        is_active: row.try_get("is_active").unwrap_or(true),
+        presence_status: "offline".into(),
+        last_seen: row.try_get("last_seen").ok().flatten(),
+        auth_source: "local".into(),
+    })
+}
+
+#[tauri::command]
+pub async fn cmd_admin_reset_local_password(
+    token: String,
+    user_id: i32,
+    password: String,
+    state: State<'_, SharedState>,
+) -> Result<(), String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    let actor_id = require_admin(&token, &jwt_secret)?;
+    if password.len() < 8 {
+        return Err("Le mot de passe doit contenir au moins 8 caractères.".into());
+    }
+
+    let auth_source: Option<String> = sqlx::query_scalar(
+        "SELECT auth_source FROM users WHERE id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| format!("Erreur base de données : {e}"))?;
+
+    match auth_source.as_deref() {
+        Some("local") => {}
+        Some(_) => return Err("Ce compte est synchronisé avec l’Active Directory.".into()),
+        None => return Err("Utilisateur introuvable.".into()),
+    }
+
+    let hash = bcrypt::hash(&password, bcrypt::DEFAULT_COST)
+        .map_err(|e| format!("Impossible de sécuriser le mot de passe : {e}"))?;
+
+    sqlx::query(
+        "UPDATE users SET password_hash = $1, session_version = session_version + 1, updated_at = NOW() WHERE id = $2",
+    )
+    .bind(&hash)
+    .bind(user_id)
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("Erreur base de données : {e}"))?;
+
+    sqlx::query(
+        "INSERT INTO audit_logs (actor_id, action, target_type, target_id)
+         VALUES ($1, 'reset_local_password', 'user', $2)",
+    )
+    .bind(actor_id)
+    .bind(user_id)
+    .execute(&pool)
+    .await
+    .ok();
+
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeLogArchive {
+    pub log_date: String,
+    pub file_name: String,
+    pub byte_size: i32,
+    pub server_path: Option<String>,
+    pub file_written: bool,
+    pub write_error: Option<String>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[tauri::command]
+pub async fn cmd_admin_list_log_archives(
+    token: String,
+    state: State<'_, SharedState>,
+) -> Result<Vec<RuntimeLogArchive>, String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    require_admin(&token, &jwt_secret)?;
+
+    let rows = sqlx::query(
+        r#"
+        SELECT log_date, file_name, byte_size, server_path, file_written, write_error, updated_at
+        FROM runtime_log_archives
+        ORDER BY log_date DESC
+        LIMIT 30
+        "#,
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("Erreur base de données : {e}"))?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let d: chrono::NaiveDate = row.try_get("log_date").unwrap_or_else(|_| chrono::Utc::now().date_naive());
+            RuntimeLogArchive {
+                log_date: d.to_string(),
+                file_name: row.try_get("file_name").unwrap_or_default(),
+                byte_size: row.try_get("byte_size").unwrap_or(0),
+                server_path: row.try_get("server_path").ok().flatten(),
+                file_written: row.try_get("file_written").unwrap_or(false),
+                write_error: row.try_get("write_error").ok().flatten(),
+                updated_at: row.try_get("updated_at").unwrap_or_else(|_| Utc::now()),
+            }
+        })
+        .collect())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JoinRequestRow {
+    pub id: i32,
+    pub user_id: i32,
+    pub username: String,
+    pub display_name: String,
+    pub email: Option<String>,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[tauri::command]
+pub async fn cmd_admin_list_join_requests(
+    token: String,
+    state: State<'_, SharedState>,
+) -> Result<Vec<JoinRequestRow>, String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    require_admin(&token, &jwt_secret)?;
+    let (gid, _) = crate::ad_employee::ensure_group(&pool).await?;
+    let rows = sqlx::query(
+        r#"
+        SELECT r.id, r.user_id, u.username, u.display_name, u.email, r.status, r.created_at
+        FROM group_join_requests r
+        JOIN users u ON u.id = r.user_id
+        WHERE r.group_id = $1
+        ORDER BY CASE r.status WHEN 'pending' THEN 0 ELSE 1 END, r.created_at DESC
+        LIMIT 100
+        "#,
+    )
+    .bind(gid)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("Demandes d’adhésion : {e}"))?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| JoinRequestRow {
+            id: row.try_get("id").unwrap_or(0),
+            user_id: row.try_get("user_id").unwrap_or(0),
+            username: row.try_get("username").unwrap_or_default(),
+            display_name: row.try_get("display_name").unwrap_or_default(),
+            email: row.try_get("email").ok().flatten(),
+            status: row.try_get("status").unwrap_or_default(),
+            created_at: row.try_get("created_at").unwrap_or_else(|_| Utc::now()),
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn cmd_admin_review_join_request(
+    token: String,
+    request_id: i32,
+    approve: bool,
+    state: State<'_, SharedState>,
+) -> Result<(), String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    let admin_id = require_admin(&token, &jwt_secret)?;
+    let (gid, _) = crate::ad_employee::ensure_group(&pool).await?;
+
+    let row = sqlx::query(
+        "SELECT id, user_id, status FROM group_join_requests WHERE id = $1 AND group_id = $2",
+    )
+    .bind(request_id)
+    .bind(gid)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| format!("Demande : {e}"))?
+    .ok_or_else(|| "Demande introuvable.".to_string())?;
+
+    let user_id: i32 = row.try_get("user_id").unwrap_or(0);
+    let status: String = row.try_get("status").unwrap_or_default();
+    if status != "pending" {
+        return Err("Cette demande a déjà été traitée.".into());
+    }
+
+    if approve {
+        crate::ad_employee::add_user(&pool, user_id, "admin").await?;
+        sqlx::query(
+            "UPDATE group_join_requests SET status = 'approved', reviewed_at = NOW(), reviewed_by = $2 WHERE id = $1",
+        )
+        .bind(request_id)
+        .bind(admin_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| format!("Approbation : {e}"))?;
+    } else {
+        sqlx::query(
+            "UPDATE group_join_requests SET status = 'rejected', reviewed_at = NOW(), reviewed_by = $2 WHERE id = $1",
+        )
+        .bind(request_id)
+        .bind(admin_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| format!("Refus : {e}"))?;
+    }
+    Ok(())
 }

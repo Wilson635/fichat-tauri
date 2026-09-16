@@ -1,8 +1,7 @@
-import { useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
+import { useEffect } from "react";
 import { Icon } from "@/components/Icon";
 import { FileVisualPreview, DocMetaRow } from "@/components/DocPreview";
-import { fileKind, fileKindLabel, formatFileSize } from "@/utils/fileUtils";
+import { fileKind, fileKindLabel, formatFileSize, isImage, isVideo } from "@/utils/fileUtils";
 
 export interface PendingShare {
   file: File;
@@ -14,19 +13,15 @@ export interface PendingShare {
 
 interface Props {
   pending: PendingShare;
-  caption: string;
-  onCaption: (value: string) => void;
-  onSend: () => void;
   onCancel: () => void;
 }
 
-export function SendFileOverlay({ pending, caption, onCaption, onSend, onCancel }: Props) {
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+export function SendFileOverlay({ pending, onCancel }: Props) {
   const { file, thumbnail, previewUrl, textSnippet } = pending;
   const kind = fileKind(file.name, file.type);
+  const media = isImage(file.type, file.name) || isVideo(file.type, file.name);
 
   useEffect(() => {
-    inputRef.current?.focus();
     const esc = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -37,67 +32,38 @@ export function SendFileOverlay({ pending, caption, onCaption, onSend, onCancel 
     return () => window.removeEventListener("keydown", esc);
   }, [onCancel]);
 
-  const title =
-    kind === "image"
-      ? "Aperçu de l’image"
-      : kind === "video"
-        ? "Aperçu de la vidéo"
-        : kind === "audio"
-          ? "Aperçu audio"
-          : "Aperçu du document";
-
-  return createPortal(
-    <div className="fichat-send-overlay" role="dialog" aria-modal="true" aria-label={title}>
-      <div className="fichat-send-card">
-        <header className="fichat-send-head">
-          <button type="button" className="icon-btn" onClick={onCancel} title="Annuler">
-            <Icon name="x" size={18} />
-          </button>
-          <div className="min-w-0 flex-1">
-            <h2>{title}</h2>
-            <p>
-              {fileKindLabel(kind)} · {formatFileSize(file.size)}
-            </p>
-          </div>
-          <span className="fichat-send-chip">{fileKindLabel(kind)}</span>
-        </header>
-
-        <div className="fichat-send-body">
-          <FileVisualPreview
-            fileName={file.name}
-            mime={file.type}
-            fileSize={file.size}
-            thumbnail={thumbnail}
-            src={previewUrl}
-            textSnippet={textSnippet}
-            variant="overlay"
-          />
+  return (
+    <div className="fichat-send-stage" aria-label="Fichier prêt à envoyer">
+      <div className="fichat-send-stage-head">
+        <div className="icon-well">
+          <Icon name={media ? "image" : "paperclip"} size={15} />
         </div>
-
-        <footer className="fichat-send-foot">
-          <DocMetaRow fileName={file.name} mime={file.type} fileSize={file.size} />
-          <div className="fichat-send-compose">
-            <textarea
-              ref={inputRef}
-              value={caption}
-              onChange={(e) => onCaption(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  onSend();
-                }
-              }}
-              rows={1}
-              placeholder="Ajouter une légende… (optionnel)"
-              className="fichat-send-caption"
-            />
-            <button type="button" className="composer-send" onClick={onSend} title="Envoyer">
-              <Icon name="send" size={16} />
-            </button>
-          </div>
-        </footer>
+        <div className="min-w-0 flex-1">
+          <p className="text-[12px] font-semibold" style={{ color: "var(--color-text-primary)" }}>
+            Prêt à envoyer
+          </p>
+          <p className="text-[11px] truncate" style={{ color: "var(--color-text-muted)" }}>
+            {fileKindLabel(kind)} · {formatFileSize(file.size)} · Entrée pour partager
+          </p>
+        </div>
+        <button type="button" className="icon-btn shrink-0" onClick={onCancel} title="Retirer le fichier">
+          <Icon name="x" size={16} />
+        </button>
       </div>
-    </div>,
-    document.body,
+      <div className={`fichat-send-stage-body ${media ? "is-media" : ""}`}>
+        <FileVisualPreview
+          fileName={file.name}
+          mime={file.type}
+          fileSize={file.size}
+          thumbnail={thumbnail}
+          src={previewUrl}
+          textSnippet={textSnippet}
+          variant="overlay"
+        />
+      </div>
+      <div className="fichat-send-stage-meta">
+        <DocMetaRow fileName={file.name} mime={file.type} fileSize={file.size} />
+      </div>
+    </div>
   );
 }

@@ -128,9 +128,15 @@ function DocCard({
     isOwn: boolean;
     onOpen: () => void;
 }) {
+    const [saved, setSaved] = useState(false);
     const handleSave = (e: React.MouseEvent) => {
         e.stopPropagation();
-        downloadAttachment(attachment).catch(() => {});
+        downloadAttachment(attachment)
+            .then(() => {
+                setSaved(true);
+                window.setTimeout(() => setSaved(false), 2800);
+            })
+            .catch(() => {});
     };
 
     return (
@@ -159,10 +165,10 @@ function DocCard({
                             }
                         }}
                         className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                        style={{ color: "var(--color-text-muted)" }}
-                        title="Enregistrer"
+                        style={{ color: saved ? "#16a34a" : "var(--color-text-muted)" }}
+                        title={saved ? "Téléchargé" : "Télécharger"}
                     >
-                        <Icon name="download" size={15} />
+                        <Icon name={saved ? "check" : "download"} size={15} />
                     </span>
                 </div>
             </button>

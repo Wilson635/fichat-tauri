@@ -1,7 +1,12 @@
-import { useState } from "react";
+import { useRef, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore, type UserProfile } from "@/store/authStore";
 import { Icon, type IconName } from "@/components/Icon";
+import { authService } from "@/services/authService";
+import { prepareProfileAvatar } from "@/utils/fileUtils";
+import { useToastStore } from "@/store/toastStore";
+import { ProfileAvatarGallery } from "@/components/ProfileAvatarGallery";
+import { isPresetAvatarSrc } from "@/data/presetAvatars";
 
 const PRESENCE_OPTIONS: {
   value: UserProfile["presenceStatus"];
@@ -84,13 +89,56 @@ function InfoRow({
   );
 }
 
+function ProfileField({
+  label,
+  value,
+  onChange,
+  type = "text",
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>
+        {label}
+      </span>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-1 w-full px-3 py-2 rounded-xl text-[13px] outline-none border"
+        style={{
+          backgroundColor: "var(--color-input-bg)",
+          borderColor: "var(--color-border)",
+          color: "var(--color-text-primary)",
+        }}
+      />
+    </label>
+  );
+}
+
 export function ProfilePage() {
-  const { user, updatePresence, updateProfile } = useAuthStore();
+  const { user, token, updatePresence, updateProfile } = useAuthStore();
   const navigate = useNavigate();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLDivElement>(null);
 
   const [statusMessage, setStatusMessage] = useState(user?.statusMessage ?? "");
   const [editingStatus, setEditingStatus] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [editingInfo, setEditingInfo] = useState(false);
+  const [infoBusy, setInfoBusy] = useState(false);
+  const [infoError, setInfoError] = useState<string | null>(null);
+  const [nameDraft, setNameDraft] = useState(user?.displayName ?? "");
+  const [emailDraft, setEmailDraft] = useState(user?.email ?? "");
+  const [phoneDraft, setPhoneDraft] = useState(user?.phone ?? "");
+  const [deptDraft, setDeptDraft] = useState(user?.department ?? "");
+  const [titleDraft, setTitleDraft] = useState(user?.title ?? "");
 
   if (!user) return null;
 
@@ -98,11 +146,127 @@ export function ProfilePage() {
   const presence = PRESENCE_OPTIONS.find((p) => p.value === user.presenceStatus) ?? PRESENCE_OPTIONS[0];
   const roleLabel = user.role === "system_admin" ? "Administrateur" : "Collaborateur";
 
-  const saveStatus = () => {
-    updateProfile({ statusMessage: statusMessage.trim() || null });
-    setEditingStatus(false);
+  const markSaved = () => {
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    window.setTimeout(() => setSaved(false), 2000);
+  };
+
+  const persistProfile = async (patch: {
+    displayName?: string;
+    email?: string;
+    phone?: string;
+    department?: string;
+    title?: string;
+    statusMessage?: string | null;
+  }) => {
+    if (!user) return;
+    const payload = {
+      displayName: (patch.displayName ?? user.displayName).trim(),
+      email: patch.email ?? user.email ?? "",
+      phone: patch.phone ?? user.phone ?? "",
+      department: patch.department ?? user.department ?? "",
+      title: patch.title ?? user.title ?? "",
+      statusMessage: patch.statusMessage !== undefined ? (patch.statusMessage ?? "") : (user.statusMessage ?? ""),
+    };
+    if (payload.displayName.length < 2) {
+      throw new Error("Le nom affiché doit contenir au moins 2 caractères.");
+    }
+    if (token) {
+      const savedProfile = await authService.updateMyProfile(token, payload);
+      updateProfile({ ...savedProfile, presenceStatus: user.presenceStatus });
+    } else {
+      updateProfile({
+        displayName: payload.displayName,
+        email: payload.email.trim() || null,
+        phone: payload.phone.trim() || null,
+        department: payload.department.trim() || null,
+        title: payload.title.trim() || null,
+        statusMessage: payload.statusMessage.trim() || null,
+      });
+    }
+  };
+
+  const saveStatus = async () => {
+    setInfoError(null);
+    try {
+      await persistProfile({ statusMessage: statusMessage.trim() || null });
+      setEditingStatus(false);
+      markSaved();
+    } catch (e) {
+      setInfoError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const startEditInfo = () => {
+    setNameDraft(user.displayName);
+    setEmailDraft(user.email ?? "");
+    setPhoneDraft(user.phone ?? "");
+    setDeptDraft(user.department ?? "");
+    setTitleDraft(user.title ?? "");
+    setInfoError(null);
+    setEditingInfo(true);
+  };
+
+  const saveInfo = async () => {
+    setInfoBusy(true);
+    setInfoError(null);
+    try {
+      await persistProfile({
+        displayName: nameDraft,
+        email: emailDraft,
+        phone: phoneDraft,
+        department: deptDraft,
+        title: titleDraft,
+      });
+      setEditingInfo(false);
+      markSaved();
+      useToastStore.getState().push({ kind: "success", title: "Profil mis à jour" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setInfoError(msg);
+      useToastStore.getState().push({ kind: "error", title: "Profil", detail: msg });
+    } finally {
+      setInfoBusy(false);
+    }
+  };
+
+  const persistAvatar = async (dataUrl: string | null) => {
+    setAvatarBusy(true);
+    setAvatarError(null);
+    try {
+      if (dataUrl) {
+        const savedUrl = token ? await authService.updateMyAvatar(token, dataUrl) : dataUrl;
+        updateProfile({ avatarPath: savedUrl });
+        useToastStore.getState().push({
+          kind: "success",
+          title: isPresetAvatarSrc(savedUrl) ? "Avatar enregistré" : "Photo de profil mise à jour",
+        });
+      } else {
+        if (token) await authService.clearMyAvatar(token);
+        updateProfile({ avatarPath: null });
+        useToastStore.getState().push({ kind: "info", title: "Photo de profil retirée" });
+      }
+      markSaved();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setAvatarError(msg);
+      useToastStore.getState().push({ kind: "error", title: "Photo de profil", detail: msg });
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  const onPickAvatar = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const url = await prepareProfileAvatar(file);
+      await persistAvatar(url);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAvatarError(msg);
+    }
   };
 
   return (
@@ -132,14 +296,54 @@ export function ProfilePage() {
             style={{ backgroundColor: "var(--color-surface)", borderColor: "var(--color-border)" }}
           >
             <div className="flex items-center gap-5 p-6">
-              <div
-                className="w-[84px] h-[84px] rounded-2xl flex items-center justify-center text-white text-[28px] font-semibold shrink-0 overflow-hidden"
-                style={{ backgroundColor: `hsl(${hue}, 42%, 42%)` }}
-              >
-                {user.avatarPath ? (
-                  <img src={user.avatarPath} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  initialsOf(user.displayName)
+              <div className="relative shrink-0">
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/*"
+                  className="hidden"
+                  onChange={onPickAvatar}
+                />
+                <button
+                  type="button"
+                  disabled={avatarBusy}
+                  title="Choisir une photo de profil"
+                  onClick={() => galleryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  className="group relative w-[84px] h-[84px] rounded-2xl flex items-center justify-center text-white text-[28px] font-semibold overflow-hidden"
+                  style={{ backgroundColor: `hsl(${hue}, 42%, 42%)` }}
+                >
+                  {user.avatarPath ? (
+                    <img src={user.avatarPath} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    initialsOf(user.displayName)
+                  )}
+                  <span
+                    className={`absolute inset-0 flex items-center justify-center bg-black/50 transition-opacity ${
+                      avatarBusy ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
+                    }`}
+                  >
+                    {avatarBusy ? (
+                      <Icon name="loader" size={22} className="animate-spin text-white" />
+                    ) : (
+                      <Icon name="camera" size={22} className="text-white" />
+                    )}
+                  </span>
+                </button>
+                {user.avatarPath && (
+                  <button
+                    type="button"
+                    disabled={avatarBusy}
+                    title="Retirer la photo"
+                    onClick={() => void persistAvatar(null)}
+                    className="absolute -bottom-1 -right-1 w-7 h-7 rounded-lg flex items-center justify-center border"
+                    style={{
+                      backgroundColor: "var(--color-surface)",
+                      borderColor: "var(--color-border)",
+                      color: "var(--color-text-secondary)",
+                    }}
+                  >
+                    <Icon name="trash" size={13} />
+                  </button>
                 )}
               </div>
               <div className="min-w-0 flex-1">
@@ -164,6 +368,42 @@ export function ProfilePage() {
                     {user.statusMessage ? ` · ${user.statusMessage}` : ""}
                   </span>
                 </div>
+                <div className="flex items-center gap-2 mt-3 flex-wrap">
+                  <button
+                    type="button"
+                    disabled={avatarBusy}
+                    onClick={() => galleryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                    className="text-[12px] font-semibold"
+                    style={{ color: "var(--color-primary-600)" }}
+                  >
+                    Choisir un avatar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={avatarBusy}
+                    onClick={() => fileRef.current?.click()}
+                    className="text-[12px] font-medium"
+                    style={{ color: "var(--color-text-secondary)" }}
+                  >
+                    Téléverser une image
+                  </button>
+                  {user.avatarPath && (
+                    <button
+                      type="button"
+                      disabled={avatarBusy}
+                      onClick={() => void persistAvatar(null)}
+                      className="text-[12px] font-medium"
+                      style={{ color: "var(--color-text-muted)" }}
+                    >
+                      Retirer
+                    </button>
+                  )}
+                </div>
+                {avatarError && (
+                  <p className="text-[12px] mt-2" style={{ color: "var(--accent-red)" }}>
+                    {avatarError}
+                  </p>
+                )}
               </div>
               <button
                 type="button"
@@ -175,6 +415,15 @@ export function ProfilePage() {
               </button>
             </div>
           </section>
+
+          <div ref={galleryRef}>
+            <ProfileAvatarGallery
+              selectedSrc={user.avatarPath}
+              busy={avatarBusy}
+              onSelect={(src) => void persistAvatar(src)}
+              onUploadClick={() => fileRef.current?.click()}
+            />
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {/* Presence */}
@@ -294,20 +543,63 @@ export function ProfilePage() {
             className="rounded-2xl border overflow-hidden"
             style={{ backgroundColor: "var(--color-surface)", borderColor: "var(--color-border)" }}
           >
-            <div className="px-4 py-3 border-b" style={{ borderColor: "var(--color-border)" }}>
-              <h3 className="text-[13px] font-semibold" style={{ color: "var(--color-text-primary)" }}>
-                Annuaire
-              </h3>
-              <p className="text-[12px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>
-                Informations issues de l’annuaire d’entreprise
-              </p>
+            <div className="px-4 py-3 border-b flex items-center justify-between gap-3" style={{ borderColor: "var(--color-border)" }}>
+              <div>
+                <h3 className="text-[13px] font-semibold" style={{ color: "var(--color-text-primary)" }}>
+                  Mes informations
+                </h3>
+                <p className="text-[12px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+                  Visible par vos collègues
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={infoBusy}
+                onClick={() => {
+                  if (editingInfo) {
+                    setEditingInfo(false);
+                    setInfoError(null);
+                  } else {
+                    startEditInfo();
+                  }
+                }}
+                className="text-[12px] font-semibold"
+                style={{ color: "var(--color-primary-600)" }}
+              >
+                {editingInfo ? "Annuler" : "Modifier"}
+              </button>
             </div>
-            <div className="divide-y" style={{ borderColor: "var(--color-border)" }}>
-              <InfoRow icon="mail" label="E-mail" value={user.email ?? "Non renseigné"} copyable />
-              <InfoRow icon="phone" label="Téléphone" value={user.phone ?? "Non renseigné"} copyable />
-              <InfoRow icon="users" label="Département" value={user.department ?? "Non renseigné"} />
-              <InfoRow icon="user" label="Poste" value={user.title ?? "Non renseigné"} />
-            </div>
+            {editingInfo ? (
+              <div className="p-4 space-y-3">
+                <ProfileField label="Nom affiché" value={nameDraft} onChange={setNameDraft} />
+                <ProfileField label="E-mail" value={emailDraft} onChange={setEmailDraft} type="email" />
+                <ProfileField label="Téléphone" value={phoneDraft} onChange={setPhoneDraft} />
+                <ProfileField label="Département" value={deptDraft} onChange={setDeptDraft} />
+                <ProfileField label="Poste" value={titleDraft} onChange={setTitleDraft} />
+                <InfoRow icon="user" label="Identifiant" value={`@${user.username}`} />
+                {infoError && (
+                  <p className="text-[12px]" style={{ color: "var(--accent-red)" }}>{infoError}</p>
+                )}
+                <button
+                  type="button"
+                  disabled={infoBusy}
+                  onClick={() => void saveInfo()}
+                  className="px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white"
+                  style={{ backgroundColor: "var(--color-primary-500)" }}
+                >
+                  {infoBusy ? "Enregistrement…" : "Enregistrer"}
+                </button>
+              </div>
+            ) : (
+              <div className="divide-y" style={{ borderColor: "var(--color-border)" }}>
+                <InfoRow icon="user" label="Nom affiché" value={user.displayName} />
+                <InfoRow icon="mail" label="E-mail" value={user.email ?? "Non renseigné"} copyable />
+                <InfoRow icon="phone" label="Téléphone" value={user.phone ?? "Non renseigné"} copyable />
+                <InfoRow icon="users" label="Département" value={user.department ?? "Non renseigné"} />
+                <InfoRow icon="type" label="Poste" value={user.title ?? "Non renseigné"} />
+                <InfoRow icon="lock" label="Identifiant" value={`@${user.username}`} />
+              </div>
+            )}
           </section>
         </div>
       </div>
