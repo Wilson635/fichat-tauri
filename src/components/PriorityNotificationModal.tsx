@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useNotificationStore } from "@/store/notificationStore";
@@ -8,10 +8,26 @@ import { APP_NAME } from "@/brand";
 export function PriorityNotificationModal() {
   const { pendingPriority, dismissPriority } = useNotificationStore();
   const navigate = useNavigate();
+  const [armed, setArmed] = useState(false);
+
+  useEffect(() => {
+    if (!pendingPriority) {
+      setArmed(false);
+      return;
+    }
+    setArmed(false);
+    const timer = window.setTimeout(() => setArmed(true), 900);
+    return () => window.clearTimeout(timer);
+  }, [pendingPriority]);
 
   useEffect(() => {
     if (!pendingPriority) return;
     const handleKey = (e: KeyboardEvent) => {
+      if (!armed) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       if (e.key === "Escape") {
         e.preventDefault();
         dismissPriority();
@@ -19,23 +35,32 @@ export function PriorityNotificationModal() {
       if (e.key === "Enter") {
         e.preventDefault();
         dismissPriority();
-        navigate(`/conversations/${pendingPriority.conversationId}`);
+        if (pendingPriority.conversationId > 0) {
+          navigate(`/conversations/${pendingPriority.conversationId}`);
+        }
       }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [pendingPriority, dismissPriority, navigate]);
+  }, [pendingPriority, dismissPriority, navigate, armed]);
 
   if (!pendingPriority) return null;
 
+  const canOpen = pendingPriority.conversationId > 0;
+
   const handleOpen = () => {
+    if (!armed) return;
     const id = pendingPriority.conversationId;
     dismissPriority();
-    navigate(`/conversations/${id}`);
+    if (id > 0) navigate(`/conversations/${id}`);
   };
 
   return createPortal(
-    <div className="fichat-priority-overlay" role="presentation">
+    <div
+      className="fichat-priority-overlay"
+      role="presentation"
+      style={{ pointerEvents: armed ? undefined : "none" }}
+    >
       <div
         className="fichat-priority-card"
         role="dialog"
@@ -63,14 +88,28 @@ export function PriorityNotificationModal() {
         </div>
 
         <div className="fichat-priority-actions">
-          <button type="button" className="fichat-priority-ghost" onClick={dismissPriority}>
-            Ignorer
+          <button
+            type="button"
+            className="fichat-priority-ghost"
+            onClick={() => armed && dismissPriority()}
+            autoFocus={armed && !canOpen}
+          >
+            {canOpen ? "Ignorer" : "J'ai compris"}
           </button>
-          <button type="button" className="fichat-priority-primary" onClick={handleOpen} autoFocus>
-            Ouvrir la conversation
-          </button>
+          {canOpen ? (
+            <button
+              type="button"
+              className="fichat-priority-primary"
+              onClick={handleOpen}
+              autoFocus={armed}
+            >
+              Ouvrir la conversation
+            </button>
+          ) : null}
         </div>
-        <p className="fichat-priority-hint">Entrée pour ouvrir · Échap pour ignorer</p>
+        <p className="fichat-priority-hint">
+          {canOpen ? "Entrée pour ouvrir · Échap pour ignorer" : "Entrée ou Échap pour fermer"}
+        </p>
       </div>
     </div>,
     document.body,

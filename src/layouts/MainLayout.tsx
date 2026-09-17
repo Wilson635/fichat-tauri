@@ -64,19 +64,44 @@ export function MainLayout() {
 
   useEffect(() => {
     if (!isTauri()) return;
-    let unlisten: (() => void) | undefined;
+    let unlistenOpen: (() => void) | undefined;
+    let unlistenClosed: (() => void) | undefined;
+    let unlistenShow: (() => void) | undefined;
     import("@tauri-apps/api/event")
-      .then(({ listen }) =>
-        listen<number>("priority-open-conversation", (e) => {
+      .then(async ({ listen }) => {
+        unlistenOpen = await listen<number>("priority-open-conversation", (e) => {
           if (e.payload) navigate(`/conversations/${e.payload}`);
-        }),
-      )
-      .then((fn) => {
-        unlisten = fn;
+        });
+        unlistenClosed = await listen("priority-overlay-closed", () => {
+          useNotificationStore.getState().setPendingPriority(null);
+        });
+        unlistenShow = await listen<{
+          title?: string;
+          body?: string;
+          conversationId?: number | null;
+        }>("priority-show-card", (e) => {
+          const title = e.payload?.title || "Conversation";
+          const raw = String(e.payload?.body || "");
+          const split = raw.indexOf(": ");
+          const senderName = split > 0 && split < 80 ? raw.slice(0, split) : "";
+          const content = senderName ? raw.slice(split + 2) : raw;
+          useNotificationStore.getState().setPendingPriority({
+            id: `prio-native-${Date.now()}`,
+            conversationId: e.payload?.conversationId ?? 0,
+            conversationName: title,
+            senderName,
+            content,
+            createdAt: new Date().toISOString(),
+            isRead: false,
+            isPriority: true,
+          });
+        });
       })
       .catch(() => {});
     return () => {
-      unlisten?.();
+      unlistenOpen?.();
+      unlistenClosed?.();
+      unlistenShow?.();
     };
   }, [navigate]);
 

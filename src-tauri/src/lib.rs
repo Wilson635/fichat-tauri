@@ -8,6 +8,7 @@ mod avatar;
 mod pg_notify;
 mod ws;
 mod background;
+mod priority_overlay;
 
 use std::sync::Arc;
 use tauri::Manager;
@@ -133,6 +134,7 @@ pub fn run() {
             commands::notifications::cmd_request_notification_permission,
             commands::notifications::cmd_focus_window,
             commands::notifications::cmd_test_notification,
+            commands::notifications::cmd_dismiss_priority_overlay,
             commands::app::cmd_get_autostart,
             commands::app::cmd_set_autostart,
             commands::app::cmd_admin_save_config,

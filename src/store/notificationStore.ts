@@ -5,6 +5,7 @@ import {
   sendToastNotification,
   setBadgeCount,
   playNotificationSound,
+  dismissNativePriorityOverlay,
 } from "@/services/notificationService";
 
 export type NotifSoundType = "message" | "priority" | "none";
@@ -45,6 +46,7 @@ interface NotificationState {
   setGlobalSound: (sound: NotifSoundType) => void;
   setNotifGranted: (granted: boolean) => void;
   dismissPriority: () => void;
+  setPendingPriority: (item: NotificationItem | null) => void;
   unreadCount: () => number;
 }
 
@@ -96,8 +98,7 @@ export const useNotificationStore = create<NotificationState>()(
 
         set((s) => ({
           items: [newItem, ...s.items].slice(0, 100),
-          pendingPriority:
-            urgent && !tauriRuntime ? newItem : s.pendingPriority,
+          pendingPriority: urgent ? newItem : s.pendingPriority,
         }));
 
         const payload = {
@@ -109,7 +110,9 @@ export const useNotificationStore = create<NotificationState>()(
         if (urgent) {
           if (!inDnd) playNotificationSound("priority");
           if (tauriRuntime) {
-            sendPriorityNotification(payload).catch(() => {});
+            sendPriorityNotification(payload).catch(() => {
+              set({ pendingPriority: newItem });
+            });
           }
         } else {
           if (!inDnd && soundType !== "none" && !tauriRuntime) {
@@ -169,7 +172,12 @@ export const useNotificationStore = create<NotificationState>()(
 
       setNotifGranted: (notifGranted) => set({ notifGranted }),
 
-      dismissPriority: () => set({ pendingPriority: null }),
+      dismissPriority: () => {
+        dismissNativePriorityOverlay().catch(() => {});
+        set({ pendingPriority: null });
+      },
+
+      setPendingPriority: (pendingPriority) => set({ pendingPriority }),
 
       unreadCount: () => get().items.filter((i) => !i.isRead).length,
     }),

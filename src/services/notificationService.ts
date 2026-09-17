@@ -62,7 +62,39 @@ export async function sendToastNotification(opts: {
   }
 }
 
-// ─── Notification prioritaire (dialog modale bloquante) ────────────────────
+function resolvedUiTheme(): "light" | "dark" {
+  if (typeof document !== "undefined") {
+    if (document.documentElement.classList.contains("dark")) return "dark";
+  }
+  if (typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+    return "dark";
+  }
+  return "light";
+}
+
+async function showInAppPriorityFallback(opts: {
+  title: string;
+  body: string;
+  conversationId?: number;
+}): Promise<void> {
+  const { useNotificationStore } = await import("@/store/notificationStore");
+  const text = String(opts.body || "");
+  const i = text.indexOf(": ");
+  const senderName = i > 0 && i < 80 ? text.slice(0, i) : "";
+  const content = i > 0 && i < 80 ? text.slice(i + 2) : text;
+  useNotificationStore.getState().setPendingPriority({
+    id: `priority-fallback-${Date.now()}`,
+    conversationId: opts.conversationId ?? 0,
+    conversationName: opts.title,
+    senderName,
+    content,
+    createdAt: new Date().toISOString(),
+    isRead: false,
+    isPriority: true,
+  });
+}
+
+// ─── Notification prioritaire (overlay bloquant) ───────────────────────────
 
 export async function sendPriorityNotification(opts: {
   title: string;
@@ -70,19 +102,16 @@ export async function sendPriorityNotification(opts: {
   conversationId?: number;
 }): Promise<void> {
   if (isTauri()) {
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("cmd_send_priority_notification", {
-        title: opts.title,
-        body: opts.body,
-        conversationId: opts.conversationId ?? null,
-      });
-    } catch (e) {
-      console.warn("Priority notification failed:", e);
-    }
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("cmd_send_priority_notification", {
+      title: opts.title,
+      body: opts.body,
+      conversationId: opts.conversationId ?? null,
+      theme: resolvedUiTheme(),
+    });
     return;
   }
-  alert(`${opts.title}\n\n${opts.body}`);
+  await showInAppPriorityFallback(opts);
 }
 
 // ─── Badge sur l'icône de la barre des tâches ──────────────────────────────
@@ -107,24 +136,37 @@ export async function setBadgeCount(count: number): Promise<void> {
 
 // ─── Notification de test immédiate ────────────────────────────────────────
 
+export async function dismissNativePriorityOverlay(): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("cmd_dismiss_priority_overlay");
+  } catch {}
+}
+
 export async function sendTestNotification(
   mode: SoundType = "priority",
 ): Promise<{ success: boolean; method: string; error?: string }> {
   if (mode === "priority") {
+    playNotificationSound("priority");
+    const testPayload = {
+      title: `${APP_NAME} — Test notification prioritaire`,
+      body: "Ceci est une alerte bloquante de test. Fermez cette fenêtre pour continuer.",
+    };
     if (isTauri()) {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        const method = await invoke<string>("cmd_test_notification");
+        const method = await invoke<string>("cmd_test_notification", {
+          theme: resolvedUiTheme(),
+        });
         return { success: true, method };
       } catch (e: any) {
-        return { success: false, method: "tauri", error: String(e) };
+        await showInAppPriorityFallback(testPayload);
+        return { success: true, method: "in-app-fallback", error: String(e) };
       }
     }
     try {
-      await sendPriorityNotification({
-        title: `${APP_NAME} — Test`,
-        body: "Ceci est une alerte bloquante de test.",
-      });
+      await sendPriorityNotification(testPayload);
       return { success: true, method: "browser" };
     } catch (e: any) {
       return { success: false, method: "browser", error: String(e) };

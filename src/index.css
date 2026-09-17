@@ -1946,19 +1946,26 @@ body.sidebar-resizing * {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(11, 18, 32, 0.22);
-  backdrop-filter: blur(22px) saturate(1.35);
-  -webkit-backdrop-filter: blur(22px) saturate(1.35);
+  background: rgba(71, 85, 105, 0.72);
+  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
   font-family: "Poppins", "Segoe UI", sans-serif;
+}
+.dark .fichat-priority-overlay {
+  background: rgba(2, 6, 23, 0.78);
 }
 .fichat-priority-card {
   width: min(440px, 100%);
   border-radius: 20px;
-  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
-  box-shadow: 0 28px 64px -18px rgba(15, 23, 42, 0.5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 28px 64px -18px rgba(15, 23, 42, 0.32);
   overflow: hidden;
   animation: fade-in 0.2s ease-out;
+}
+.dark .fichat-priority-card {
+  background: var(--color-surface-secondary);
+  box-shadow: 0 28px 64px -18px rgba(0, 0, 0, 0.55);
 }
 .fichat-priority-head {
   display: flex;
@@ -1996,6 +2003,9 @@ body.sidebar-resizing * {
   color: #f87171;
   background: rgba(239, 68, 68, 0.16);
 }
+.dark .fichat-priority-msg {
+  background: var(--color-surface-tertiary);
+}
 .fichat-priority-brand {
   margin-top: 5px;
   font-size: 15px;
@@ -2021,7 +2031,7 @@ body.sidebar-resizing * {
   margin-top: 12px;
   padding: 12px 14px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--color-surface-secondary) 88%, transparent);
+  background: var(--color-surface-secondary);
   border: 1px solid var(--color-border);
   font-size: 13.5px;
   line-height: 1.5;
