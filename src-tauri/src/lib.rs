@@ -3,6 +3,7 @@ mod config;
 mod db;
 mod log_buffer;
 mod log_archive;
+mod log_seal;
 mod ad_employee;
 mod avatar;
 mod pg_notify;
@@ -36,7 +37,7 @@ pub type SharedState = Arc<Mutex<AppState>>;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
     tracing_subscriber::registry()
         .with(
@@ -44,7 +45,6 @@ pub fn run() {
                 EnvFilter::new("enterprise_chat_lib=info,enterprise_chat=info")
             }),
         )
-        .with(fmt::layer())
         .with(log_buffer::CaptureLayer)
         .init();
 
@@ -62,11 +62,13 @@ pub fn run() {
         .manage(state.clone())
         .setup(move |app| {
             crate::log_archive::init_worker();
+            if let Ok(dir) = app.path().app_config_dir() {
+                crate::log_seal::init(&dir);
+            }
             background::setup_tray(app)?;
             background::hide_on_autostart(app);
             background::ensure_default_autostart();
             let app_handle = app.handle().clone();
-            log_buffer::set_app_handle(app_handle.clone());
             let state_clone = state.clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = initialize_app(app_handle, state_clone).await {
@@ -102,6 +104,7 @@ pub fn run() {
             commands::admin::cmd_admin_create_user,
             commands::admin::cmd_admin_reset_local_password,
             commands::admin::cmd_admin_list_log_archives,
+            commands::admin::cmd_admin_read_log_archive,
             commands::admin::cmd_admin_list_join_requests,
             commands::admin::cmd_admin_review_join_request,
             // ── Chat ─────────────────────────────────────
@@ -194,6 +197,9 @@ async fn initialize_app(
     {
         let mut s = state.lock().await;
         s.jwt_secret = jwt_secret.clone();
+    }
+    if let Ok(dir) = app_handle.path().app_config_dir() {
+        crate::log_seal::init(&dir);
     }
 
     commands::app::bootstrap(app_handle, state).await?;

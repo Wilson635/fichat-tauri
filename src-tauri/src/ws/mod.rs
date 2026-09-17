@@ -120,11 +120,11 @@ pub async fn start_ws_server(
     let addr = format!("127.0.0.1:{}", WS_PORT);
     let listener = match TcpListener::bind(&addr).await {
         Ok(l) => {
-            tracing::info!("WebSocket server listening on ws://{}", addr);
+            tracing::info!("WebSocket listener ready {{port={}}}", WS_PORT);
             l
         }
         Err(e) => {
-            tracing::error!("Failed to bind WebSocket server on {}: {}", addr, e);
+            tracing::error!("Failed to bind WebSocket listener: {}", e);
             return;
         }
     };
@@ -144,17 +144,17 @@ pub async fn start_ws_server(
 
 async fn handle_connection(
     stream: TcpStream,
-    peer: SocketAddr,
+    _peer: SocketAddr,
     hub: Arc<WsHub>,
     pool: sqlx::PgPool,
     jwt_secret: String,
 ) {
-    tracing::debug!("WS new connection from {}", peer);
+    tracing::debug!("WS new connection");
 
     let ws = match accept_async(stream).await {
         Ok(ws) => ws,
         Err(e) => {
-            tracing::warn!("WS handshake failed from {}: {}", peer, e);
+            tracing::warn!("WS handshake failed: {}", e);
             return;
         }
     };

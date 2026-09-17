@@ -659,7 +659,7 @@ pub async fn cmd_admin_export_runtime_logs(
     }
     std::fs::write(&path, body.as_bytes())
         .map_err(|e| format!("Impossible d'écrire le fichier : {e}"))?;
-    tracing::info!("Logs exportés vers {path} ({} octets)", body.len());
+    tracing::info!("journal.export");
     Ok(path)
 }
 
@@ -855,6 +855,7 @@ pub struct RuntimeLogArchive {
     pub server_path: Option<String>,
     pub file_written: bool,
     pub write_error: Option<String>,
+    pub sealed: bool,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -874,7 +875,8 @@ pub async fn cmd_admin_list_log_archives(
 
     let rows = sqlx::query(
         r#"
-        SELECT log_date, file_name, byte_size, server_path, file_written, write_error, updated_at
+        SELECT log_date, file_name, byte_size, server_path, file_written, write_error, updated_at,
+               COALESCE(sealed, FALSE) AS sealed
         FROM runtime_log_archives
         ORDER BY log_date DESC
         LIMIT 30
@@ -895,8 +897,54 @@ pub async fn cmd_admin_list_log_archives(
                 server_path: row.try_get("server_path").ok().flatten(),
                 file_written: row.try_get("file_written").unwrap_or(false),
                 write_error: row.try_get("write_error").ok().flatten(),
+                sealed: row.try_get("sealed").unwrap_or(false),
                 updated_at: row.try_get("updated_at").unwrap_or_else(|_| Utc::now()),
             }
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn cmd_admin_read_log_archive(
+    token: String,
+    log_date: String,
+    state: State<'_, SharedState>,
+) -> Result<Vec<crate::log_buffer::RuntimeLog>, String> {
+    let (pool, jwt_secret) = {
+        let s = state.lock().await;
+        (
+            s.db_pool.clone().ok_or("Base de données non connectée")?,
+            s.jwt_secret.clone(),
+        )
+    };
+    require_admin(&token, &jwt_secret)?;
+
+    let contents: Option<String> = sqlx::query_scalar(
+        "SELECT contents FROM runtime_log_archives WHERE log_date = $1::date",
+    )
+    .bind(&log_date)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| format!("Erreur base de données : {e}"))?;
+
+    let Some(contents) = contents else {
+        return Err("Archive introuvable".into());
+    };
+
+    Ok(crate::log_seal::open_archive(&contents)
+        .into_iter()
+        .enumerate()
+        .map(|(i, line)| crate::log_buffer::RuntimeLog {
+            id: if line.seq > 0 { line.seq } else { (i as u64) + 1 },
+            timestamp: line.timestamp,
+            level: line.level,
+            target: line.target,
+            message: if line.host.is_empty() || line.host == "-" {
+                line.message
+            } else {
+                format!("[{}] {}", line.host, line.message)
+            },
+            code: line.code,
         })
         .collect())
 }

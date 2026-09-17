@@ -1,13 +1,12 @@
 //! In-memory ring buffer of tracing events, mirrored to the admin UI.
 //! Same lines you see in the `npm run tauri dev` / cargo terminal.
 
-use chrono::{SecondsFormat, Utc};
 use serde::Serialize;
 use std::cell::Cell;
 use std::collections::VecDeque;
+use std::io::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
-use tauri::{AppHandle, Emitter};
 use tracing::field::{Field, Visit};
 use tracing::{Event, Subscriber};
 use tracing_subscriber::layer::Context;
@@ -23,11 +22,11 @@ pub struct RuntimeLog {
     pub level: String,
     pub target: String,
     pub message: String,
+    pub code: String,
 }
 
 static BUFFER: OnceLock<Mutex<VecDeque<RuntimeLog>>> = OnceLock::new();
 static SEQ: AtomicU64 = AtomicU64::new(1);
-static APP: OnceLock<AppHandle> = OnceLock::new();
 
 thread_local! {
     static IN_LAYER: Cell<bool> = Cell::new(false);
@@ -35,10 +34,6 @@ thread_local! {
 
 fn buffer() -> &'static Mutex<VecDeque<RuntimeLog>> {
     BUFFER.get_or_init(|| Mutex::new(VecDeque::with_capacity(MAX_ENTRIES)))
-}
-
-pub fn set_app_handle(handle: AppHandle) {
-    let _ = APP.set(handle);
 }
 
 pub fn snapshot() -> Vec<RuntimeLog> {
@@ -57,10 +52,7 @@ pub fn format_all() -> String {
 }
 
 pub fn format_line(e: &RuntimeLog) -> String {
-    format!(
-        "{}  {:<5} {}: {}",
-        e.timestamp, e.level, e.target, e.message
-    )
+    format!("{} {} {} :: {}", e.timestamp, e.level, e.target, e.message)
 }
 
 fn push(entry: RuntimeLog) {
@@ -70,10 +62,8 @@ fn push(entry: RuntimeLog) {
         }
         b.push_back(entry.clone());
     }
+    let _ = writeln!(std::io::stderr(), "{}", format_line(&entry));
     crate::log_archive::enqueue(&entry);
-    if let Some(app) = APP.get() {
-        let _ = app.emit("runtime-log", &entry);
-    }
 }
 
 struct MessageVisitor {
@@ -133,13 +123,18 @@ where
         if message.is_empty() {
             message = meta.name().to_string();
         }
+        message = crate::log_seal::sanitize(&message);
+
+        let target = crate::log_seal::short_target(meta.target());
+        let code = crate::log_seal::event_code(&target, &message);
 
         push(RuntimeLog {
             id: SEQ.fetch_add(1, Ordering::Relaxed),
-            timestamp: Utc::now().to_rfc3339_opts(SecondsFormat::Micros, true),
+            timestamp: crate::log_seal::stamp_local(),
             level: meta.level().as_str().to_uppercase(),
-            target: meta.target().to_string(),
+            target,
             message,
+            code,
         });
 
         IN_LAYER.with(|c| c.set(false));

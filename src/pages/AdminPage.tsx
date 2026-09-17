@@ -85,7 +85,7 @@ const NAV: { id: AdminTab; label: string; hint: string; icon: IconName }[] = [
   { id: "joins", label: "Demandes", hint: "Groupe Employé", icon: "userPlus" },
   { id: "sync", label: "Active Directory", hint: "Synchronisation LDAP", icon: "refresh" },
   { id: "settings", label: "Réglages", hint: "Base, LDAP, journaux", icon: "settings" },
-  { id: "logs", label: "Journal", hint: "Logs runtime exportables", icon: "file" },
+  { id: "logs", label: "Journal", hint: "Journal scellé, lisible ici", icon: "file" },
 ];
 
 const PRESENCE_COLORS: Record<string, string> = {
@@ -206,22 +206,6 @@ function StatCard({
         </div>
       </div>
     </AdminCard>
-  );
-}
-
-function LogLevelBadge({ level }: { level: string }) {
-  const styles: Record<string, React.CSSProperties> = {
-    TRACE: { backgroundColor: "rgba(148,163,184,0.15)", color: "#94a3b8" },
-    DEBUG: { backgroundColor: "rgba(56,189,248,0.12)", color: "#38bdf8" },
-    INFO: { backgroundColor: "rgba(34,197,94,0.12)", color: "#16a34a" },
-    WARN: { backgroundColor: "rgba(245,158,11,0.12)", color: "#d97706" },
-    ERROR: { backgroundColor: "rgba(239,68,68,0.12)", color: "#dc2626" },
-  };
-  const key = level.toUpperCase();
-  return (
-    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold font-mono" style={styles[key] ?? styles.INFO}>
-      {key}
-    </span>
   );
 }
 
@@ -1316,7 +1300,8 @@ function SettingsTab() {
         <div className="px-4 py-3 border-b" style={{ borderColor: "var(--color-border)" }}>
           <h3 className="text-[13px] font-semibold" style={{ color: "var(--color-text-primary)" }}>Journal runtime quotidien</h3>
           <p className="text-[12px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>
-            Chemin <strong>local</strong> vu par PostgreSQL sur 192.168.30.42 (ex. C:/Program Files/FiEcho/log). Pas un UNC du type \\serveur\c$\… : COPY TO écrit sur le disque du service, pas via le partage admin. Le dossier doit déjà exister, avec droit d’écriture pour le compte du service PostgreSQL.
+            Fichiers <strong>scellés</strong> (AES-256-GCM) sur le disque du service PostgreSQL. Un dump ou une copie du dossier n’est pas lisible. Le journal se déchiffre uniquement dans cette console, sur ce poste.
+            Chemin local vu par PostgreSQL (ex. C:/Program Files/FiEcho/log), pas un UNC. Le dossier doit exister, avec droit d’écriture pour le compte du service.
           </p>
         </div>
         <div className="p-4">
@@ -1357,23 +1342,42 @@ function LogsTab() {
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
-  const [archives, setArchives] = useState<{ logDate: string; fileName: string; byteSize: number; serverPath: string | null; fileWritten: boolean; writeError: string | null }[]>([]);
+  const [archives, setArchives] = useState<{ logDate: string; fileName: string; byteSize: number; serverPath: string | null; fileWritten: boolean; writeError: string | null; sealed?: boolean }[]>([]);
+  const [archiveDate, setArchiveDate] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const rows = await invoke<RuntimeLog[]>("cmd_admin_get_runtime_logs", { token });
-      replaceAll(rows);
+      if (archiveDate) {
+        const rows = await invoke<RuntimeLog[]>("cmd_admin_read_log_archive", {
+          token,
+          logDate: archiveDate,
+        });
+        replaceAll(rows);
+      } else {
+        const rows = await invoke<RuntimeLog[]>("cmd_admin_get_runtime_logs", { token });
+        replaceAll(rows);
+      }
     } catch {
       /* web preview */
     } finally {
       setLoading(false);
     }
-  }, [token, replaceAll]);
+  }, [token, replaceAll, archiveDate]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!live || archiveDate) return;
+    const id = window.setInterval(() => {
+      invoke<RuntimeLog[]>("cmd_admin_get_runtime_logs", { token })
+        .then(replaceAll)
+        .catch(() => {});
+    }, 1800);
+    return () => window.clearInterval(id);
+  }, [live, archiveDate, token, replaceAll]);
 
   useEffect(() => {
     invoke<typeof archives>("cmd_admin_list_log_archives", { token })
@@ -1391,7 +1395,12 @@ function LogsTab() {
     if (filter !== "ALL" && level !== filter) return false;
     if (!search.trim()) return true;
     const q = search.toLowerCase();
-    return l.message.toLowerCase().includes(q) || l.target.toLowerCase().includes(q) || level.toLowerCase().includes(q);
+    return (
+      l.message.toLowerCase().includes(q)
+      || l.target.toLowerCase().includes(q)
+      || (l.code || "").toLowerCase().includes(q)
+      || level.toLowerCase().includes(q)
+    );
   });
 
   const exportLogs = async () => {
@@ -1452,11 +1461,15 @@ function LogsTab() {
   return (
     <div className="flex flex-col gap-4 h-full min-h-0">
       <div className="flex items-start justify-between gap-3 flex-wrap">
-        <SectionIntro title="Journal runtime" hint="Flux en direct, plus archives quotidiennes stockées sur le serveur de base." />
+        <SectionIntro title="Journal runtime" hint="Style Metabase : date, niveau, module :: message. Aucune adresse IP. Stockage FJE2 scellé, déchiffré ici." />
         <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
-            onClick={() => setLive(!live)}
+            onClick={() => {
+              setArchiveDate(null);
+              setLive(!live);
+              if (!live) load();
+            }}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-semibold border"
             style={{
               borderColor: "var(--color-border)",
@@ -1493,12 +1506,35 @@ function LogsTab() {
           </div>
           <div className="p-3 space-y-1.5 max-h-40 overflow-y-auto">
             {archives.map((a) => (
-              <div key={a.logDate} className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-[12px]"
-                style={{ backgroundColor: "var(--color-surface-secondary)" }}>
+              <button
+                key={a.logDate}
+                type="button"
+                onClick={async () => {
+                  try {
+                    const rows = await invoke<RuntimeLog[]>("cmd_admin_read_log_archive", {
+                      token,
+                      logDate: a.logDate,
+                    });
+                    replaceAll(rows);
+                    setLive(false);
+                    setArchiveDate(a.logDate);
+                  } catch {
+                    setExportMsg("Impossible de déchiffrer cette archive");
+                    setTimeout(() => setExportMsg(null), 3000);
+                  }
+                }}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-[12px] w-full text-left"
+                style={{
+                  backgroundColor: archiveDate === a.logDate ? "var(--color-active)" : "var(--color-surface-secondary)",
+                }}
+              >
                 <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: a.fileWritten ? "#22c55e" : "#f59e0b" }} />
                 <span className="font-medium truncate" style={{ color: "var(--color-text-primary)" }}>{a.fileName}</span>
+                <span className="text-[10px] font-semibold shrink-0" style={{ color: a.sealed ? "#16a34a" : "var(--color-text-muted)" }}>
+                  {a.sealed ? "FJE2" : "clair"}
+                </span>
                 <span className="ml-auto tabular-nums shrink-0" style={{ color: "var(--color-text-muted)" }}>{Math.max(1, Math.round(a.byteSize / 1024))} Ko</span>
-              </div>
+              </button>
             ))}
           </div>
         </AdminCard>
@@ -1510,7 +1546,7 @@ function LogsTab() {
           <Icon name="search" size={14} style={{ color: "var(--color-text-muted)" }} />
           <input
             type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Filtrer cible, message…"
+            placeholder="Filtrer code J-, cible, message…"
             className="flex-1 bg-transparent text-[13px] outline-none"
             style={{ color: "var(--color-text-primary)" }}
           />
@@ -1547,10 +1583,10 @@ function LogsTab() {
         ) : (
           <div className="p-3 space-y-0.5">
             {filtered.map((l) => (
-              <div key={l.id} className="flex items-start gap-2 leading-relaxed whitespace-pre-wrap break-all">
-                <span className="shrink-0" style={{ color: "#8b949e" }}>{l.timestamp}</span>
-                <LogLevelBadge level={l.level} />
-                <span className="shrink-0" style={{ color: "#58a6ff" }}>{l.target}</span>
+              <div key={l.id} className="leading-relaxed whitespace-pre-wrap break-all">
+                <span style={{ color: "#8b949e" }}>{l.timestamp} </span>
+                <span style={{ color: lineColor(l.level), fontWeight: 600 }}>{(l.level || "INFO").toUpperCase()} </span>
+                <span style={{ color: "#58a6ff" }}>{l.target} :: </span>
                 <span style={{ color: lineColor(l.level) }}>{l.message}</span>
               </div>
             ))}

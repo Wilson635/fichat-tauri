@@ -77,10 +77,16 @@ pub fn enqueue(entry: &RuntimeLog) {
     }
 }
 
-fn host_name() -> String {
-    std::env::var("COMPUTERNAME")
-        .or_else(|_| std::env::var("HOSTNAME"))
-        .unwrap_or_else(|_| "unknown".into())
+fn parse_journal_time(stamp: &str) -> chrono::DateTime<chrono::Utc> {
+    let normalized = stamp.replace(',', ".");
+    if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(&normalized, "%Y-%m-%d %H:%M:%S%.f") {
+        if let Some(local) = naive.and_local_timezone(Local).single() {
+            return local.with_timezone(&chrono::Utc);
+        }
+    }
+    chrono::DateTime::parse_from_rfc3339(stamp)
+        .map(|d| d.with_timezone(&chrono::Utc))
+        .unwrap_or_else(|_| chrono::Utc::now())
 }
 
 fn snapshot_backend() -> Option<(PgPool, String)> {
@@ -96,18 +102,26 @@ async fn flush(batch: &mut Vec<RuntimeLog>) {
         return;
     };
 
-    let host = host_name();
     let rows = std::mem::take(batch);
     let mut dates: std::collections::BTreeSet<NaiveDate> = std::collections::BTreeSet::new();
 
     for e in &rows {
-        let logged_at = chrono::DateTime::parse_from_rfc3339(&e.timestamp)
-            .map(|d| d.with_timezone(&chrono::Utc))
-            .unwrap_or_else(|_| chrono::Utc::now());
+        let logged_at = parse_journal_time(&e.timestamp);
         let log_date = logged_at.with_timezone(&Local).date_naive();
         dates.insert(log_date);
 
-        if let Err(err) = sqlx::query(
+        let Some(envelope) = crate::log_seal::seal_line(
+            e.id,
+            &e.timestamp,
+            &e.level,
+            &e.target,
+            &e.message,
+            "-",
+        ) else {
+            continue;
+        };
+
+        if sqlx::query(
             r#"
             INSERT INTO runtime_log_lines (log_date, logged_at, level, target, message, host)
             VALUES ($1, $2, $3, $4, $5, $6)
@@ -115,14 +129,15 @@ async fn flush(batch: &mut Vec<RuntimeLog>) {
         )
         .bind(log_date)
         .bind(logged_at)
-        .bind(&e.level)
-        .bind(&e.target)
-        .bind(&e.message)
-        .bind(&host)
+        .bind("SEAL")
+        .bind("jnl")
+        .bind(&envelope)
+        .bind(Option::<String>::None)
         .execute(&pool)
         .await
+        .is_err()
         {
-            tracing::debug!("Archivage log ignoré: {err}");
+            tracing::debug!("Archivage log ignoré");
         }
     }
 
@@ -142,13 +157,9 @@ async fn archive_day(pool: &PgPool, log_dir: &str, date: NaiveDate) {
     let file_name = format!("fiecho-runtime-{date}.log");
     let contents: Option<String> = sqlx::query_scalar(
         r#"
-        SELECT string_agg(line, E'\n' ORDER BY id)
-        FROM (
-            SELECT id,
-                   logged_at::text || '  ' || rpad(level, 5) || ' [' || COALESCE(host, '-') || '] ' || target || ': ' || message AS line
-            FROM runtime_log_lines
-            WHERE log_date = $1
-        ) t
+        SELECT string_agg(message, E'\n' ORDER BY id)
+        FROM runtime_log_lines
+        WHERE log_date = $1
         "#,
     )
     .bind(date)
@@ -175,8 +186,8 @@ async fn archive_day(pool: &PgPool, log_dir: &str, date: NaiveDate) {
     let _ = sqlx::query(
         r#"
         INSERT INTO runtime_log_archives
-            (log_date, file_name, contents, byte_size, server_path, file_written, write_error, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+            (log_date, file_name, contents, byte_size, server_path, file_written, write_error, sealed, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, NOW())
         ON CONFLICT (log_date) DO UPDATE SET
             file_name    = EXCLUDED.file_name,
             contents     = EXCLUDED.contents,
@@ -184,6 +195,7 @@ async fn archive_day(pool: &PgPool, log_dir: &str, date: NaiveDate) {
             server_path  = EXCLUDED.server_path,
             file_written = EXCLUDED.file_written,
             write_error  = EXCLUDED.write_error,
+            sealed       = TRUE,
             updated_at   = NOW()
         "#,
     )
@@ -198,8 +210,8 @@ async fn archive_day(pool: &PgPool, log_dir: &str, date: NaiveDate) {
     .await;
 
     if file_written {
-        tracing::info!("Journal quotidien écrit sur le serveur BD: {server_path}");
-    } else if let Some(err) = write_error.as_ref() {
-        tracing::debug!("Fichier serveur non écrit ({file_name}): {err}");
+        tracing::info!("journal.sealed");
+    } else if write_error.is_some() {
+        tracing::debug!("journal.sealed.write_skipped");
     }
 }

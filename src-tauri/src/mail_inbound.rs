@@ -89,7 +89,7 @@ async fn run_listener(gen: u64, pool: PgPool, bind: String, domain: String) {
     let listener = match TcpListener::bind(&bind).await {
         Ok(l) => l,
         Err(e) => {
-            let msg = format!("Impossible d’écouter {bind} : {e}");
+            let msg = format!("Impossible d’écouter le connecteur SMTP : {e}");
             tracing::error!("{msg}");
             set_status(|s| {
                 s.listening = false;
@@ -102,7 +102,7 @@ async fn run_listener(gen: u64, pool: PgPool, bind: String, domain: String) {
         s.listening = true;
         s.last_error = None;
     });
-    tracing::info!("Réception SMTP FiEcho sur {bind} (domaine {domain})");
+    tracing::info!("SMTP listener ready");
 
     loop {
         if GEN.load(Ordering::SeqCst) != gen {
@@ -110,12 +110,12 @@ async fn run_listener(gen: u64, pool: PgPool, bind: String, domain: String) {
         }
         let accept = timeout(Duration::from_millis(800), listener.accept()).await;
         match accept {
-            Ok(Ok((stream, peer))) => {
+            Ok(Ok((stream, _peer))) => {
                 let pool = pool.clone();
                 let domain = domain.clone();
                 tauri::async_runtime::spawn(async move {
                     if let Err(e) = handle_client(stream, pool, domain).await {
-                        tracing::warn!("SMTP {peer}: {e}");
+                        tracing::warn!("SMTP session: {e}");
                     }
                 });
             }

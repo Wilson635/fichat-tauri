@@ -7,6 +7,7 @@ export interface RuntimeLog {
   level: string;
   target: string;
   message: string;
+  code?: string;
 }
 
 interface RuntimeLogState {
@@ -87,18 +88,9 @@ export async function startRuntimeLogCapture(): Promise<void> {
   });
 
   if (!isTauri()) return;
-
-  try {
-    const { listen } = await import("@tauri-apps/api/event");
-    await listen<RuntimeLog>("runtime-log", (e) => {
-      if (e.payload) useRuntimeLogStore.getState().ingest(e.payload);
-    });
-  } catch {
-    // preview / missing plugin
-  }
 }
 
 export function formatLogLine(e: RuntimeLog): string {
-  const level = (e.level || "INFO").toUpperCase().padEnd(5);
-  return `${e.timestamp}  ${level} ${e.target}: ${e.message}`;
+  const level = (e.level || "INFO").toUpperCase();
+  return `${e.timestamp} ${level} ${e.target} :: ${e.message}`;
 }

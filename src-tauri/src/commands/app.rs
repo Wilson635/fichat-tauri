@@ -42,20 +42,11 @@ pub async fn bootstrap(
         .unwrap_or_else(|_| PathBuf::from("."))
         .join("config.toml");
     let cfg = AppConfig::resolve(&path);
-    tracing::info!(
-        "Config intégrée — BD {} · LDAP {}:{}",
-        redact_db_host(&cfg.db_url),
-        cfg.ldap_host,
-        cfg.ldap_port
-    );
+    tracing::info!("Verifying postgres Database Connection ...");
     if let Err(e) = apply_config(&app_handle, &state, cfg, false).await {
         tracing::error!("Connexion initiale impossible : {e}");
     }
     Ok(())
-}
-
-fn redact_db_host(url: &str) -> String {
-    url.split('@').nth(1).unwrap_or("(hôte masqué)").to_string()
 }
 
 pub async fn apply_config(
@@ -108,7 +99,7 @@ pub async fn apply_config(
             });
             pg_notify::start(pool.clone(), hub.clone());
             s.ws_hub = Some(hub);
-            tracing::info!("FiEcho ready ✓ (WS on port {}, PG LISTEN actif)", ws::WS_PORT);
+            tracing::info!("Starting FiEcho ...");
         }
         s.db_pool = Some(pool);
         s.config = Some(cfg);
